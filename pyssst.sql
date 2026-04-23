@@ -35,6 +35,11 @@ CREATE TABLE IF NOT EXISTS `messages` (
   `contenu_chiffre_dest` mediumblob NOT NULL,
   `contenu_chiffre_exp` mediumblob NOT NULL,
   `envoye_le` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `modifie_le` datetime DEFAULT NULL,
+  `supprime_pour_tous` tinyint(1) NOT NULL DEFAULT 0,
+  `supprime_le` datetime DEFAULT NULL,
+  `cache_par_expediteur` tinyint(1) NOT NULL DEFAULT 0,
+  `cache_par_destinataire` tinyint(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   KEY `fk_msg_exp` (`expediteur`),
   KEY `fk_msg_dest` (`destinataire`)

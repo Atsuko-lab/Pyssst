@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMessageBox,
+    QInputDialog,
     QPushButton, QVBoxLayout, QWidget,
 )
 
@@ -58,15 +59,65 @@ def save_message(expediteur, destinataire, chiffre_dest, chiffre_exp):
     conn.close()
 
 
-def fetch_messages(user_a, user_b):
+def update_message(msg_id, expediteur, chiffre_dest, chiffre_exp):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id, expediteur, contenu_chiffre_dest, contenu_chiffre_exp, envoye_le "
+        "UPDATE messages "
+        "SET contenu_chiffre_dest = %s, contenu_chiffre_exp = %s, modifie_le = NOW() "
+        "WHERE id = %s AND expediteur = %s AND supprime_pour_tous = 0",
+        (chiffre_dest, chiffre_exp, msg_id, expediteur),
+    )
+    conn.commit()
+    ok = cursor.rowcount == 1
+    cursor.close()
+    conn.close()
+    return ok
+
+
+def delete_message_for_me(msg_id, expediteur):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE messages "
+        "SET cache_par_expediteur = 1 "
+        "WHERE id = %s AND expediteur = %s AND supprime_pour_tous = 0",
+        (msg_id, expediteur),
+    )
+    conn.commit()
+    ok = cursor.rowcount == 1
+    cursor.close()
+    conn.close()
+    return ok
+
+
+def delete_message_for_everyone(msg_id, expediteur):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE messages "
+        "SET supprime_pour_tous = 1, supprime_le = NOW(), contenu_chiffre_dest = %s, contenu_chiffre_exp = %s "
+        "WHERE id = %s AND expediteur = %s AND supprime_pour_tous = 0",
+        (b"", b"", msg_id, expediteur),
+    )
+    conn.commit()
+    ok = cursor.rowcount == 1
+    cursor.close()
+    conn.close()
+    return ok
+
+
+def fetch_messages(viewer, other_user):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, expediteur, destinataire, contenu_chiffre_dest, contenu_chiffre_exp, envoye_le, modifie_le "
         "FROM messages "
-        "WHERE (expediteur = %s AND destinataire = %s) OR (expediteur = %s AND destinataire = %s) "
+        "WHERE ((expediteur = %s AND destinataire = %s) OR (expediteur = %s AND destinataire = %s)) "
+        "AND supprime_pour_tous = 0 "
+        "AND NOT ((expediteur = %s AND cache_par_expediteur = 1) OR (destinataire = %s AND cache_par_destinataire = 1)) "
         "ORDER BY envoye_le ASC",
-        (user_a, user_b, user_b, user_a),
+        (viewer, other_user, other_user, viewer, viewer, viewer),
     )
     rows = cursor.fetchall()
     cursor.close()
@@ -106,6 +157,7 @@ class ChatWindow(QWidget):
         self.selected_user = None
         self.private_key = load_private_key(username)
         self.last_id = 0
+        self.last_signature = None
 
         self.setWindowTitle(f"Chat — {username}")
         self.resize(700, 500)
@@ -163,6 +215,7 @@ class ChatWindow(QWidget):
         self.selected_user = item.data(Qt.UserRole)
         self.chat_label.setText(f"Conversation avec {self.selected_user}")
         self.last_id = 0
+        self.last_signature = None
         self.clear_messages()
         self.load_messages()
 
@@ -173,11 +226,21 @@ class ChatWindow(QWidget):
                 w.deleteLater()
 
     def load_messages(self):
-        for row in fetch_messages(self.username, self.selected_user):
-            msg_id, expediteur, chiffre_dest, chiffre_exp, envoye_le = row
-            self.show_message(msg_id, expediteur, chiffre_dest, chiffre_exp, envoye_le)
+        rows = fetch_messages(self.username, self.selected_user)
+        self.last_signature = self.compute_signature(rows)
+        for row in rows:
+            msg_id, expediteur, destinataire, chiffre_dest, chiffre_exp, envoye_le, modifie_le = row
+            self.show_message(msg_id, expediteur, destinataire, chiffre_dest, chiffre_exp, envoye_le, modifie_le)
 
-    def show_message(self, msg_id, expediteur, chiffre_dest, chiffre_exp, envoye_le):
+    def compute_signature(self, rows):
+        if not rows:
+            return (0, 0, "")
+        last_id = max(r[0] for r in rows)
+        modifie_le_vals = [r[6] for r in rows if r[6] is not None]
+        max_modifie = max(modifie_le_vals) if modifie_le_vals else None
+        return (len(rows), last_id, str(max_modifie) if max_modifie is not None else "")
+
+    def show_message(self, msg_id, expediteur, destinataire, chiffre_dest, chiffre_exp, envoye_le, modifie_le):
         sent_by_me = (expediteur == self.username)
         try:
             texte = decrypt(chiffre_exp if sent_by_me else chiffre_dest, self.private_key)
@@ -186,9 +249,23 @@ class ChatWindow(QWidget):
 
         heure = envoye_le.strftime("%H:%M") if hasattr(envoye_le, "strftime") else str(envoye_le)
         prefix = "Moi" if sent_by_me else expediteur
-        label = QLabel(f"[{heure}] {prefix} : {texte}")
+        suffix = " (modifié)" if modifie_le is not None else ""
+        label = QLabel(f"[{heure}] {prefix} : {texte}{suffix}")
         label.setWordWrap(True)
-        self.messages_area.addWidget(label)
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.addWidget(label, 1)
+
+        if sent_by_me:
+            edit_btn = QPushButton("Modifier")
+            edit_btn.clicked.connect(lambda _=False, mid=msg_id, txt=texte: self.edit_message(mid, txt))
+            del_btn = QPushButton("Supprimer")
+            del_btn.clicked.connect(lambda _=False, mid=msg_id: self.delete_message(mid))
+            row_layout.addWidget(edit_btn)
+            row_layout.addWidget(del_btn)
+
+        self.messages_area.addWidget(row)
 
         if msg_id > self.last_id:
             self.last_id = msg_id
@@ -209,10 +286,57 @@ class ChatWindow(QWidget):
         self.clear_messages()
         self.load_messages()
 
+    def edit_message(self, msg_id, ancien_texte):
+        if not self.selected_user:
+            return
+        nouveau_texte, ok = QInputDialog.getText(self, "Modifier", "Nouveau message :", text=ancien_texte)
+        if not ok:
+            return
+        nouveau_texte = nouveau_texte.strip()
+        if not nouveau_texte:
+            QMessageBox.warning(self, "Erreur", "Le message ne peut pas être vide.")
+            return
+
+        chiffre_dest = encrypt(nouveau_texte, get_public_key(self.selected_user))
+        chiffre_exp = encrypt(nouveau_texte, get_public_key(self.username))
+        if not update_message(msg_id, self.username, chiffre_dest, chiffre_exp):
+            QMessageBox.warning(self, "Erreur", "Impossible de modifier ce message.")
+            return
+        self.clear_messages()
+        self.load_messages()
+
+    def delete_message(self, msg_id):
+        box = QMessageBox(self)
+        box.setWindowTitle("Supprimer")
+        box.setText("Supprimer ce message ?")
+        btn_me = box.addButton("Pour moi", QMessageBox.AcceptRole)
+        btn_all = box.addButton("Pour tout le monde", QMessageBox.DestructiveRole)
+        box.addButton(QMessageBox.Cancel)
+        box.exec()
+        clicked = box.clickedButton()
+
+        if clicked == btn_me:
+            ok = delete_message_for_me(msg_id, self.username)
+        elif clicked == btn_all:
+            ok = delete_message_for_everyone(msg_id, self.username)
+        else:
+            return
+
+        if not ok:
+            QMessageBox.warning(self, "Erreur", "Impossible de supprimer ce message.")
+            return
+        self.clear_messages()
+        self.load_messages()
+
     def poll(self):
         if not self.selected_user:
             return
-        for row in fetch_messages(self.username, self.selected_user):
-            if row[0] > self.last_id:
-                msg_id, expediteur, chiffre_dest, chiffre_exp, envoye_le = row
-                self.show_message(msg_id, expediteur, chiffre_dest, chiffre_exp, envoye_le)
+        rows = fetch_messages(self.username, self.selected_user)
+        signature = self.compute_signature(rows)
+        if signature == self.last_signature:
+            return
+        self.clear_messages()
+        self.last_signature = signature
+        for row in rows:
+            msg_id, expediteur, destinataire, chiffre_dest, chiffre_exp, envoye_le, modifie_le = row
+            self.show_message(msg_id, expediteur, destinataire, chiffre_dest, chiffre_exp, envoye_le, modifie_le)
