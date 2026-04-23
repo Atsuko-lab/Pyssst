@@ -14,7 +14,7 @@ re : pour vérfier la complexité du mot de passe
 salage
 modifiez l'interface pour que ça soit plus joli
 Readme
-+1 fonctionnalité
+vu /non vu - fonctionnalité
 
 -A faire(isham):
 Diaporama - Gamma
