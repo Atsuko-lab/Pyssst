@@ -50,12 +50,34 @@ def get_connection():
     config["database"] = DB_NAME
     return mysql.connector.connect(**config)
 
-
+def validate_password_strength(password):
+    if len(password) < 8:
+        return False, "Mot de passe trop court (minimum 8 caracteres)."
+    if re.search(r"\s", password) is not None:
+        return False, "Le mot de passe ne doit pas contenir d'espaces."
+    if re.search(r"[a-z]", password) is None:
+        return False, "Le mot de passe doit contenir au moins une minuscule."
+    if re.search(r"[A-Z]", password) is None:
+        return False, "Le mot de passe doit contenir au moins une majuscule."
+    if re.search(r"[0-9]", password) is None:
+        return False, "Le mot de passe doit contenir au moins un chiffre."
+    if re.search(r"[^a-zA-Z0-9]", password) is None:
+        return (
+            False,
+            "Le mot de passe doit contenir au moins un caractere special (ex: !, @, #).",
+        )
+    return True, ""
 def register_user(username, password):
     username = username.strip()
 
     if username == "" or password == "":
         return False, "Username et mot de passe obligatoires."
+
+
+        ok, message = validate_password_strength(password)
+    if not ok:
+        return False, message
+
 
     conn = get_connection()
     cursor = conn.cursor()
