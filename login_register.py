@@ -1,4 +1,4 @@
-from email.mime import message
+import re
 
 import bcrypt
 import mysql.connector
@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+import re
 
 DB_CONFIG = {
     "host": "localhost",
@@ -73,16 +74,14 @@ def register_user(username, password):
     if username == "" or password == "":
         return False, "Username et mot de passe obligatoires."
 
-
-        ok, message = validate_password_strength(password)
+    ok, message = validate_password_strength(password)
     if not ok:
         return False, message
 
 
     conn = get_connection()
     cursor = conn.cursor()
-    username_sql = username.replace("'", "''")
-    cursor.execute(f"SELECT pseudo FROM users WHERE pseudo = '{username_sql}'")
+    cursor.execute("SELECT pseudo FROM users WHERE pseudo = %s", (username,))
     existing_user = cursor.fetchone()
     if existing_user is not None:
         cursor.close()
@@ -92,14 +91,11 @@ def register_user(username, password):
     hashed_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
     hashed_password_str = hashed_password.decode("utf-8")
     _, public_key_pem = generate_and_store_keys(username)
-    hashed_password_sql = hashed_password_str.replace("'", "''")
-    public_key_sql = public_key_pem.replace("'", "''")
 
-    insert_query = (
-        "INSERT INTO users (pseudo, motdepasseHASH, `cléPublic`) "
-        f"VALUES ('{username_sql}', '{hashed_password_sql}', '{public_key_sql}')"
+    cursor.execute(
+        "INSERT INTO users (pseudo, motdepasseHASH, `cléPublic`) VALUES (%s, %s, %s)",
+        (username, hashed_password_str, public_key_pem),
     )
-    cursor.execute(insert_query)
     conn.commit()
     cursor.close()
     conn.close()
@@ -114,8 +110,7 @@ def login_user(username, password):
 
     conn = get_connection()
     cursor = conn.cursor()
-    username_sql = username.replace("'", "''")
-    cursor.execute(f"SELECT motdepasseHASH FROM users WHERE pseudo = '{username_sql}'")
+    cursor.execute("SELECT motdepasseHASH FROM users WHERE pseudo = %s", (username,))
     row = cursor.fetchone()
     cursor.close()
     conn.close()
