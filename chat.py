@@ -21,10 +21,89 @@ DB_CONFIG = {
 PRIVATE_KEY_DIR = Path(__file__).resolve().parent
 
 
+def ensure_database_schema():
+    try:
+        base_config = DB_CONFIG.copy()
+        base_config.pop("database", None)
+        conn = mysql.connector.connect(**base_config)
+        cursor = conn.cursor()
+        cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_CONFIG['database']}`")
+        cursor.execute(f"USE `{DB_CONFIG['database']}`")
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS `users` ("
+            "`pseudo` varchar(100) NOT NULL, "
+            "`motdepasseHASH` varchar(255) NOT NULL, "
+            "`cléPublic` text NOT NULL, "
+            "PRIMARY KEY (`pseudo`)"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        )
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS `messages` ("
+            "`id` int NOT NULL AUTO_INCREMENT, "
+            "`expediteur` varchar(100) NOT NULL, "
+            "`destinataire` varchar(100) NOT NULL, "
+            "`contenu_chiffre_dest` mediumblob NOT NULL, "
+            "`contenu_chiffre_exp` mediumblob NOT NULL, "
+            "`envoye_le` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+            "`modifie_le` datetime DEFAULT NULL, "
+            "`supprime_pour_tous` tinyint(1) NOT NULL DEFAULT 0, "
+            "`supprime_le` datetime DEFAULT NULL, "
+            "`cache_par_expediteur` tinyint(1) NOT NULL DEFAULT 0, "
+            "`cache_par_destinataire` tinyint(1) NOT NULL DEFAULT 0, "
+            "PRIMARY KEY (`id`), "
+            "KEY `fk_msg_exp` (`expediteur`), "
+            "KEY `fk_msg_dest` (`destinataire`)"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        )
+        try:
+            cursor.execute(
+                "ALTER TABLE `messages` "
+                "ADD CONSTRAINT `fk_msg_dest` FOREIGN KEY (`destinataire`) REFERENCES `users` (`pseudo`) ON DELETE CASCADE, "
+                "ADD CONSTRAINT `fk_msg_exp` FOREIGN KEY (`expediteur`) REFERENCES `users` (`pseudo`) ON DELETE CASCADE"
+            )
+        except mysql.connector.Error:
+            pass
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except mysql.connector.Error:
+        return
 
 
-def get_connection():
+
+    try:
+        return mysql.connector.connect(**DB_CONFIG)
+    except mysql.connector.Error as e:
+        if getattr(e, "errno", None) == 1049:
+            ensure_database_schema()
+            return mysql.connector.connect(**DB_CONFIG)
+        raise
     return mysql.connector.connect(**DB_CONFIG)
+
+def ensure_messages_schema():
+    required_columns = {
+        "modifie_le": "ALTER TABLE messages ADD COLUMN modifie_le datetime DEFAULT NULL",
+        "supprime_le": "ALTER TABLE messages ADD COLUMN supprime_le datetime DEFAULT NULL",
+        "cache_par_expediteur": "ALTER TABLE messages ADD COLUMN cache_par_expediteur tinyint(1) NOT NULL DEFAULT 0",
+        "cache_par_destinataire": "ALTER TABLE messages ADD COLUMN cache_par_destinataire tinyint(1) NOT NULL DEFAULT 0",
+    }
+
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = 'messages'",
+            (DB_CONFIG["database"],),
+        )
+        existing = {row[0] for row in cursor.fetchall()}
+        for name, ddl in required_columns.items():
+            if name not in existing:
+                cursor.execute(ddl)
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except mysql.connector.Error:
+        return
 
 
 def get_all_users(exclude):
@@ -65,7 +144,7 @@ def update_message(msg_id, expediteur, chiffre_dest, chiffre_exp):
     cursor.execute(
         "UPDATE messages "
         "SET contenu_chiffre_dest = %s, contenu_chiffre_exp = %s, modifie_le = NOW() "
-        "WHERE id = %s AND expediteur = %s AND supprime_pour_tous = 0",
+        "WHERE id = %s AND expediteur = %s AND COALESCE(supprime_pour_tous, 0) = 0",
         (chiffre_dest, chiffre_exp, msg_id, expediteur),
     )
     conn.commit()
@@ -81,7 +160,7 @@ def delete_message_for_me(msg_id, expediteur):
     cursor.execute(
         "UPDATE messages "
         "SET cache_par_expediteur = 1 "
-        "WHERE id = %s AND expediteur = %s AND supprime_pour_tous = 0",
+        "WHERE id = %s AND expediteur = %s AND COALESCE(supprime_pour_tous, 0) = 0",
         (msg_id, expediteur),
     )
     conn.commit()
@@ -97,7 +176,7 @@ def delete_message_for_everyone(msg_id, expediteur):
     cursor.execute(
         "UPDATE messages "
         "SET supprime_pour_tous = 1, supprime_le = NOW(), contenu_chiffre_dest = %s, contenu_chiffre_exp = %s "
-        "WHERE id = %s AND expediteur = %s AND supprime_pour_tous = 0",
+        "WHERE id = %s AND expediteur = %s AND COALESCE(supprime_pour_tous, 0) = 0",
         (b"", b"", msg_id, expediteur),
     )
     conn.commit()
@@ -114,8 +193,8 @@ def fetch_messages(viewer, other_user):
         "SELECT id, expediteur, destinataire, contenu_chiffre_dest, contenu_chiffre_exp, envoye_le, modifie_le "
         "FROM messages "
         "WHERE ((expediteur = %s AND destinataire = %s) OR (expediteur = %s AND destinataire = %s)) "
-        "AND supprime_pour_tous = 0 "
-        "AND NOT ((expediteur = %s AND cache_par_expediteur = 1) OR (destinataire = %s AND cache_par_destinataire = 1)) "
+        "AND COALESCE(supprime_pour_tous, 0) = 0 "
+        "AND NOT ((expediteur = %s AND COALESCE(cache_par_expediteur, 0) = 1) OR (destinataire = %s AND COALESCE(cache_par_destinataire, 0) = 1)) "
         "ORDER BY envoye_le ASC",
         (viewer, other_user, other_user, viewer, viewer, viewer),
     )
@@ -155,6 +234,7 @@ class ChatWindow(QWidget):
         super().__init__()
         self.username = username
         self.selected_user = None
+        ensure_messages_schema()
         self.private_key = load_private_key(username)
         self.last_id = 0
         self.last_signature = None

@@ -1,5 +1,3 @@
-import re
-
 import bcrypt
 import mysql.connector
 from pathlib import Path
@@ -46,10 +44,85 @@ def generate_and_store_keys(username):
     return str(private_key_path), public_key_pem.decode("utf-8")
 
 
+def ensure_database_schema():
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}`")
+        cursor.execute(f"USE `{DB_NAME}`")
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS `users` ("
+            "`pseudo` varchar(100) NOT NULL, "
+            "`motdepasseHASH` varchar(255) NOT NULL, "
+            "`cléPublic` text NOT NULL, "
+            "PRIMARY KEY (`pseudo`)"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        )
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS `messages` ("
+            "`id` int NOT NULL AUTO_INCREMENT, "
+            "`expediteur` varchar(100) NOT NULL, "
+            "`destinataire` varchar(100) NOT NULL, "
+            "`contenu_chiffre_dest` mediumblob NOT NULL, "
+            "`contenu_chiffre_exp` mediumblob NOT NULL, "
+            "`envoye_le` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+            "`modifie_le` datetime DEFAULT NULL, "
+            "`supprime_pour_tous` tinyint(1) NOT NULL DEFAULT 0, "
+            "`supprime_le` datetime DEFAULT NULL, "
+            "`cache_par_expediteur` tinyint(1) NOT NULL DEFAULT 0, "
+            "`cache_par_destinataire` tinyint(1) NOT NULL DEFAULT 0, "
+            "PRIMARY KEY (`id`), "
+            "KEY `fk_msg_exp` (`expediteur`), "
+            "KEY `fk_msg_dest` (`destinataire`)"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        )
+
+        cursor.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = %s AND table_name = 'messages'",
+            (DB_NAME,),
+        )
+        existing = {row[0] for row in cursor.fetchall()}
+        missing = []
+        if "modifie_le" not in existing:
+            missing.append("ADD COLUMN modifie_le datetime DEFAULT NULL")
+        if "supprime_pour_tous" not in existing:
+            missing.append("ADD COLUMN supprime_pour_tous tinyint(1) NOT NULL DEFAULT 0")
+        if "supprime_le" not in existing:
+            missing.append("ADD COLUMN supprime_le datetime DEFAULT NULL")
+        if "cache_par_expediteur" not in existing:
+            missing.append("ADD COLUMN cache_par_expediteur tinyint(1) NOT NULL DEFAULT 0")
+        if "cache_par_destinataire" not in existing:
+            missing.append("ADD COLUMN cache_par_destinataire tinyint(1) NOT NULL DEFAULT 0")
+        if missing:
+            cursor.execute("ALTER TABLE messages " + ", ".join(missing))
+
+        try:
+            cursor.execute(
+                "ALTER TABLE `messages` "
+                "ADD CONSTRAINT `fk_msg_dest` FOREIGN KEY (`destinataire`) REFERENCES `users` (`pseudo`) ON DELETE CASCADE, "
+                "ADD CONSTRAINT `fk_msg_exp` FOREIGN KEY (`expediteur`) REFERENCES `users` (`pseudo`) ON DELETE CASCADE"
+            )
+        except mysql.connector.Error:
+            pass
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except mysql.connector.Error:
+        return
+
+
 def get_connection():
     config = DB_CONFIG.copy()
     config["database"] = DB_NAME
-    return mysql.connector.connect(**config)
+    try:
+        return mysql.connector.connect(**config)
+    except mysql.connector.Error as e:
+        if getattr(e, "errno", None) == 1049:
+            ensure_database_schema()
+            return mysql.connector.connect(**config)
+        raise
 
 def validate_password_strength(password):
     if len(password) < 8:
