@@ -10,12 +10,9 @@ bcrypt: pour le hachage
 datetime: pour afficher la date et l'heure
 
 -A faire(nathan):
-mot de pass robuste
 salage
-suprimer les users
 
 -A faire(isham):
-messagerie
 
 -A faire(Fady):
 Fonctionalité suplementaire
