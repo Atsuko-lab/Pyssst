@@ -70,7 +70,7 @@ def ensure_database_schema():
         return
 
 
-
+def get_connection():
     try:
         return mysql.connector.connect(**DB_CONFIG)
     except mysql.connector.Error as e:
@@ -78,11 +78,11 @@ def ensure_database_schema():
             ensure_database_schema()
             return mysql.connector.connect(**DB_CONFIG)
         raise
-    return mysql.connector.connect(**DB_CONFIG)
 
 def ensure_messages_schema():
     required_columns = {
         "modifie_le": "ALTER TABLE messages ADD COLUMN modifie_le datetime DEFAULT NULL",
+        "supprime_pour_tous": "ALTER TABLE messages ADD COLUMN supprime_pour_tous tinyint(1) NOT NULL DEFAULT 0",
         "supprime_le": "ALTER TABLE messages ADD COLUMN supprime_le datetime DEFAULT NULL",
         "cache_par_expediteur": "ALTER TABLE messages ADD COLUMN cache_par_expediteur tinyint(1) NOT NULL DEFAULT 0",
         "cache_par_destinataire": "ALTER TABLE messages ADD COLUMN cache_par_destinataire tinyint(1) NOT NULL DEFAULT 0",
@@ -129,6 +129,8 @@ def get_public_key(username):
 def save_message(expediteur, destinataire, chiffre_dest, chiffre_exp):
     conn = get_connection()
     cursor = conn.cursor()
+    expediteur = str(expediteur).strip()
+    destinataire = str(destinataire).strip()
     cursor.execute(
         "INSERT INTO messages (expediteur, destinataire, contenu_chiffre_dest, contenu_chiffre_exp) VALUES (%s, %s, %s, %s)",
         (expediteur, destinataire, chiffre_dest, chiffre_exp),
@@ -321,7 +323,7 @@ class ChatWindow(QWidget):
         return (len(rows), last_id, str(max_modifie) if max_modifie is not None else "")
 
     def show_message(self, msg_id, expediteur, destinataire, chiffre_dest, chiffre_exp, envoye_le, modifie_le):
-        sent_by_me = (expediteur == self.username)
+        sent_by_me = (str(expediteur).strip() == str(self.username).strip())
         try:
             texte = decrypt(chiffre_exp if sent_by_me else chiffre_dest, self.private_key)
         except Exception:
