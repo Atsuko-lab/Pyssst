@@ -12,8 +12,14 @@ re : pour vérfier la complexité du mot de passe
 
 -A faire(nathan):
 salage
+modifiez l'interface pour que ça soit plus joli
+trello
 
 -A faire(isham):
 
 -A faire(Fady):
-Fonctionalité suplementaire
+
+
+Fonctionnalités supplémentaires : 
+- Le mdp ne doit pas contenir nos prénoms.
+- Modifier, supprimer un message.

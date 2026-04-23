@@ -71,6 +71,12 @@ def validate_password_strength(password):
         return False, "Le mot de passe doit contenir au moins une majuscule."
     if re.search(r"[0-9]", password) is None:
         return False, "Le mot de passe doit contenir au moins un chiffre."
+    if re.search(r"Isham", password, re.IGNORECASE) is not None:
+        return False, "Le mot de passe ne doit pas contenir 'Isham'."
+    if re.search(r"Nathan", password, re.IGNORECASE) is not None:
+        return False, "Le mot de passe ne doit pas contenir 'Nathan'."
+    if re.search(r"Fady", password, re.IGNORECASE) is not None:
+        return False, "Le mot de passe ne doit pas contenir 'Fady'."
     if re.search(r"[^a-zA-Z0-9]", password) is None:
         return (
             False,
