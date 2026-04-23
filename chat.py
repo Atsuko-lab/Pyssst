@@ -1,0 +1,218 @@
+from pathlib import Path
+
+import mysql.connector
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (
+    QApplication, QHBoxLayout, QLabel, QLineEdit,
+    QListWidget, QListWidgetItem, QMessageBox,
+    QPushButton, QVBoxLayout, QWidget,
+)
+
+DB_CONFIG = {
+    "host": "localhost",
+    "user": "root",
+    "password": "",
+    "database": "pyssst",
+}
+
+PRIVATE_KEY_DIR = Path(__file__).resolve().parent
+
+
+
+
+def get_connection():
+    return mysql.connector.connect(**DB_CONFIG)
+
+
+def get_all_users(exclude):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT pseudo FROM users WHERE pseudo != %s", (exclude,))
+    users = [row[0] for row in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    return users
+
+
+def get_public_key(username):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT `cléPublic` FROM users WHERE pseudo = %s", (username,))
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return row[0]
+
+
+def save_message(expediteur, destinataire, chiffre_dest, chiffre_exp):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO messages (expediteur, destinataire, contenu_chiffre_dest, contenu_chiffre_exp) VALUES (%s, %s, %s, %s)",
+        (expediteur, destinataire, chiffre_dest, chiffre_exp),
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def fetch_messages(user_a, user_b):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, expediteur, contenu_chiffre_dest, contenu_chiffre_exp, envoye_le "
+        "FROM messages "
+        "WHERE (expediteur = %s AND destinataire = %s) OR (expediteur = %s AND destinataire = %s) "
+        "ORDER BY envoye_le ASC",
+        (user_a, user_b, user_b, user_a),
+    )
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return rows
+
+
+# le saint chiffrement
+
+def load_private_key(username):
+    key_path = PRIVATE_KEY_DIR / f"{username}_private_key.pem"
+    with open(key_path, "rb") as f:
+        return serialization.load_pem_private_key(f.read(), password=None)
+
+
+def encrypt(message, public_key_pem):
+    public_key = serialization.load_pem_public_key(public_key_pem.encode())
+    return public_key.encrypt(
+        message.encode(),
+        padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
+    )
+
+
+def decrypt(ciphertext, private_key):
+    return private_key.decrypt(
+        bytes(ciphertext),
+        padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
+    ).decode()
+
+
+#le chat pour chatter
+
+class ChatWindow(QWidget):
+    def __init__(self, username):
+        super().__init__()
+        self.username = username
+        self.selected_user = None
+        self.private_key = load_private_key(username)
+        self.last_id = 0
+
+        self.setWindowTitle(f"Chat — {username}")
+        self.resize(700, 500)
+
+        main = QHBoxLayout(self)
+
+        # Colonne gauche 
+        left = QVBoxLayout()
+        left.addWidget(QLabel("Utilisateurs :"))
+        self.user_list = QListWidget()
+        self.user_list.itemClicked.connect(self.on_user_click)
+        left.addWidget(self.user_list)
+        left_widget = QWidget()
+        left_widget.setFixedWidth(160)
+        left_widget.setLayout(left)
+
+        # Colonne droite
+        right = QVBoxLayout()
+        self.chat_label = QLabel("Sélectionne un utilisateur")
+        right.addWidget(self.chat_label)
+
+        self.messages_area = QVBoxLayout()
+        self.messages_area.setAlignment(Qt.AlignTop)
+        messages_widget = QWidget()
+        messages_widget.setLayout(self.messages_area)
+        right.addWidget(messages_widget)
+
+        input_row = QHBoxLayout()
+        self.input = QLineEdit()
+        self.input.setPlaceholderText("Message...")
+        self.input.returnPressed.connect(self.send_message)
+        send_btn = QPushButton("Envoyer")
+        send_btn.clicked.connect(self.send_message)
+        input_row.addWidget(self.input)
+        input_row.addWidget(send_btn)
+        right.addLayout(input_row)
+
+        main.addWidget(left_widget)
+        main.addLayout(right)
+
+        self.refresh_users()
+
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.poll)
+        self.timer.start(2000)
+
+    def refresh_users(self):
+        self.user_list.clear()
+        for user in get_all_users(self.username):
+            item = QListWidgetItem(user)
+            item.setData(Qt.UserRole, user)
+            self.user_list.addItem(item)
+
+    def on_user_click(self, item):
+        self.selected_user = item.data(Qt.UserRole)
+        self.chat_label.setText(f"Conversation avec {self.selected_user}")
+        self.last_id = 0
+        self.clear_messages()
+        self.load_messages()
+
+    def clear_messages(self):
+        while self.messages_area.count():
+            w = self.messages_area.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+
+    def load_messages(self):
+        for row in fetch_messages(self.username, self.selected_user):
+            msg_id, expediteur, chiffre_dest, chiffre_exp, envoye_le = row
+            self.show_message(msg_id, expediteur, chiffre_dest, chiffre_exp, envoye_le)
+
+    def show_message(self, msg_id, expediteur, chiffre_dest, chiffre_exp, envoye_le):
+        sent_by_me = (expediteur == self.username)
+        try:
+            texte = decrypt(chiffre_exp if sent_by_me else chiffre_dest, self.private_key)
+        except Exception:
+            texte = "[illisible]"
+
+        heure = envoye_le.strftime("%H:%M") if hasattr(envoye_le, "strftime") else str(envoye_le)
+        prefix = "Moi" if sent_by_me else expediteur
+        label = QLabel(f"[{heure}] {prefix} : {texte}")
+        label.setWordWrap(True)
+        self.messages_area.addWidget(label)
+
+        if msg_id > self.last_id:
+            self.last_id = msg_id
+
+    def send_message(self):
+        if not self.selected_user:
+            QMessageBox.warning(self, "Erreur", "Sélectionne un utilisateur.")
+            return
+        texte = self.input.text().strip()
+        if not texte:
+            return
+
+        chiffre_dest = encrypt(texte, get_public_key(self.selected_user))
+        chiffre_exp = encrypt(texte, get_public_key(self.username))
+
+        save_message(self.username, self.selected_user, chiffre_dest, chiffre_exp)
+        self.input.clear()
+        self.clear_messages()
+        self.load_messages()
+
+    def poll(self):
+        if not self.selected_user:
+            return
+        for row in fetch_messages(self.username, self.selected_user):
+            if row[0] > self.last_id:
+                msg_id, expediteur, chiffre_dest, chiffre_exp, envoye_le = row
+                self.show_message(msg_id, expediteur, chiffre_dest, chiffre_exp, envoye_le)

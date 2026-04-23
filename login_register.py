@@ -1,3 +1,5 @@
+from email.mime import message
+
 import bcrypt
 import mysql.connector
 from pathlib import Path
@@ -148,9 +150,13 @@ class LoginWindow(QWidget):
         password = self.password_input.text()
         ok, message = login_user(username, password)
         if ok:
-            QMessageBox.information(self, "Connexion", message)
+            from chat import ChatWindow
+            self.chat = ChatWindow(username.strip())
+            self.chat.show()
+            self.close()
         else:
             QMessageBox.warning(self, "Connexion", message)
+
 
 
 if __name__ == "__main__":

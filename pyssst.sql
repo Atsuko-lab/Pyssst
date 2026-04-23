@@ -3,9 +3,9 @@
 -- https://www.phpmyadmin.net/
 --
 -- Hôte : 127.0.0.1:3306
--- Généré le : jeu. 16 avr. 2026 à 08:58
--- Version du serveur : 8.3.0
--- Version de PHP : 8.2.18
+-- Généré le : jeu. 23 avr. 2026 à 07:36
+-- Version du serveur : 9.1.0
+-- Version de PHP : 8.3.14
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -24,23 +24,46 @@ SET time_zone = "+00:00";
 -- --------------------------------------------------------
 
 --
+-- Structure de la table `messages`
+--
+
+DROP TABLE IF EXISTS `messages`;
+CREATE TABLE IF NOT EXISTS `messages` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `expediteur` varchar(100) NOT NULL,
+  `destinataire` varchar(100) NOT NULL,
+  `contenu_chiffre_dest` mediumblob NOT NULL,
+  `contenu_chiffre_exp` mediumblob NOT NULL,
+  `envoye_le` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `fk_msg_exp` (`expediteur`),
+  KEY `fk_msg_dest` (`destinataire`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Structure de la table `users`
 --
 
 DROP TABLE IF EXISTS `users`;
 CREATE TABLE IF NOT EXISTS `users` (
-  `pseudo` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL,
-  `motdepasseHASH` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL,
-  `cléPublic` varchar(255) NOT NULL
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  `pseudo` varchar(100) NOT NULL,
+  `motdepasseHASH` varchar(255) NOT NULL,
+  `cléPublic` text NOT NULL,
+  PRIMARY KEY (`pseudo`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 --
--- Déchargement des données de la table `users`
+-- Contraintes pour les tables déchargées
 --
 
-INSERT INTO `users` (`pseudo`, `motdepasseHASH`, `cléPublic`) VALUES
-('Atsukooo', '$2b$12$2gNJ4o9cyc6okU/BRty8nugjULuxdzO9avXrYRWdg5DdV4/HzsWdu', ''),
-('test1', '$2b$12$nUVYOOA8fEf6H6FTJ4baHOPi.NaHAkIA6mJjXPCIVV56L9YX8WRn2', '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA53zr6o13e3PRHPkWx/J4\n8X91k724Zkxa2eJ2KEJFIykK6WkBQJuWs3AH01fl4gCpx4daGs/rhfGuEmW/nazE\njkS+wH3CYC0N0K60pdHTZzXM0Jfy5zaxjfxjjlW6ka2DNlaaQwcZfEYNggL23h9S\nBlCq0ZaOHHeqdFQ+wx9jWVC5E2upB4N38');
+--
+-- Contraintes pour la table `messages`
+--
+ALTER TABLE `messages`
+  ADD CONSTRAINT `fk_msg_dest` FOREIGN KEY (`destinataire`) REFERENCES `users` (`pseudo`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_msg_exp` FOREIGN KEY (`expediteur`) REFERENCES `users` (`pseudo`) ON DELETE CASCADE;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
