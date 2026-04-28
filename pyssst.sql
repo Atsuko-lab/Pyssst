@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS `messages` (
   `supprime_le` datetime DEFAULT NULL,
   `cache_par_expediteur` tinyint(1) NOT NULL DEFAULT 0,
   `cache_par_destinataire` tinyint(1) NOT NULL DEFAULT 0,
+  `lu` tinyint(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   KEY `fk_msg_exp` (`expediteur`),
   KEY `fk_msg_dest` (`destinataire`)

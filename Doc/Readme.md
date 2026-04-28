@@ -11,18 +11,12 @@ datetime: pour afficher la date et l'heure
 re : pour vérfier la complexité du mot de passe
 
 -A faire(nathan):
-salage
-modifiez l'interface pour que ça soit plus joli
-Readme
-vu /non vu - fonctionnalité
 
 -A faire(isham):
 Diaporama - Gamma
 Trello
 
--A faire(Fady):
-
-
 Fonctionnalités supplémentaires : 
 - Le mdp ne doit pas contenir nos prénoms.
 - Modifier, supprimer un message.
+- Vu des messages
