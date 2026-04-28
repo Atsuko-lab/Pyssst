@@ -201,7 +201,6 @@ class ChatWindow(QWidget):
 
         main = QHBoxLayout(self)
 
-        # Colonne gauche 
         left = QVBoxLayout()
         left.addWidget(QLabel("Utilisateurs :"))
         self.user_list = QListWidget()
@@ -211,7 +210,6 @@ class ChatWindow(QWidget):
         left_widget.setFixedWidth(160)
         left_widget.setLayout(left)
 
-        # Colonne droite
         right = QVBoxLayout()
         self.chat_label = QLabel("Sélectionne un utilisateur")
         right.addWidget(self.chat_label)

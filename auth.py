@@ -10,13 +10,11 @@ from crypto import generate_and_store_keys
 
 
 def _encrypt_password(password: str) -> str:
-    """Étape 1 — Cryptage : HMAC-SHA256 du mot de passe avec une clé secrète applicative."""
     secret_key = os.environ.get("PYSSST_SECRET_KEY", "Py$$st_S3cretK3y_2026").encode("utf-8")
     return hmac.new(secret_key, password.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def _salt_and_hash(encrypted: str) -> str:
-    """Étape 2 — Salage : bcrypt génère un sel aléatoire unique par utilisateur et hache le résultat."""
     return bcrypt.hashpw(encrypted.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
