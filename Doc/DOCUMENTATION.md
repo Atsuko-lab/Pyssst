@@ -296,7 +296,7 @@ Rafraîchit la liste des contacts (pour mettre à jour les badges non lus), puis
 | Colonne | Type | Description |
 |---|---|---|
 | `pseudo` | varchar(100) | Identifiant unique, clé primaire |
-| `motdepasseHASH` | varchar(255) | Hash bcrypt du mot de passe salé |
+| `motdepasseHASH_SAL` | varchar(255) | Hash bcrypt du mot de passe crypté et salé |
 | `cléPublic` | text | Clé publique RSA au format PEM |
 
 ### Table `messages`

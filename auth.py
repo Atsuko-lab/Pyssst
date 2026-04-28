@@ -62,7 +62,7 @@ def register_user(username, password):
         _, public_key_pem = generate_and_store_keys(username)
 
         cursor.execute(
-            "INSERT INTO users (pseudo, motdepasseHASH, `cléPublic`) VALUES (%s, %s, %s)",
+            "INSERT INTO users (pseudo, motdepasseHASH_SAL, `cléPublic`) VALUES (%s, %s, %s)",
             (username, hashed_password_str, public_key_pem),
         )
         conn.commit()
@@ -86,7 +86,7 @@ def login_user(username, password):
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT motdepasseHASH FROM users WHERE pseudo = %s", (username,))
+        cursor.execute("SELECT motdepasseHASH_SAL FROM users WHERE pseudo = %s", (username,))
         row = cursor.fetchone()
         if row is None:
             return False, "Utilisateur introuvable."

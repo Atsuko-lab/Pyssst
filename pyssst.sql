@@ -3,9 +3,9 @@
 -- https://www.phpmyadmin.net/
 --
 -- Hôte : 127.0.0.1:3306
--- Généré le : jeu. 23 avr. 2026 à 07:36
--- Version du serveur : 9.1.0
--- Version de PHP : 8.3.14
+-- Généré le : mar. 28 avr. 2026 à 13:03
+-- Version du serveur : 8.3.0
+-- Version de PHP : 8.2.18
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -36,15 +36,15 @@ CREATE TABLE IF NOT EXISTS `messages` (
   `contenu_chiffre_exp` mediumblob NOT NULL,
   `envoye_le` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `modifie_le` datetime DEFAULT NULL,
-  `supprime_pour_tous` tinyint(1) NOT NULL DEFAULT 0,
+  `supprime_pour_tous` tinyint(1) NOT NULL DEFAULT '0',
   `supprime_le` datetime DEFAULT NULL,
-  `cache_par_expediteur` tinyint(1) NOT NULL DEFAULT 0,
-  `cache_par_destinataire` tinyint(1) NOT NULL DEFAULT 0,
-  `lu` tinyint(1) NOT NULL DEFAULT 0,
+  `cache_par_expediteur` tinyint(1) NOT NULL DEFAULT '0',
+  `cache_par_destinataire` tinyint(1) NOT NULL DEFAULT '0',
+  `lu` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`),
   KEY `fk_msg_exp` (`expediteur`),
   KEY `fk_msg_dest` (`destinataire`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
 
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS `messages` (
 DROP TABLE IF EXISTS `users`;
 CREATE TABLE IF NOT EXISTS `users` (
   `pseudo` varchar(100) NOT NULL,
-  `motdepasseHASH` varchar(255) NOT NULL,
+  `motdepasseHASH_SAL` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   `cléPublic` text NOT NULL,
   PRIMARY KEY (`pseudo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
