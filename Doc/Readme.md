@@ -1,16 +1,3 @@
--Apllication "Pyssst"
-
--Bibliothèques: 
-cryptograhy: pour les clées Private et Public
-pyside: pour creer l'interface
-hashlib: pour le salage
-os/pathlib: pour stocker les clées
-mysql-connector-python: pour lier la BDD
-bcrypt: pour le hachage
-datetime: pour afficher la date et l'heure
-re : pour vérfier la complexité du mot de passe
-
--A faire(nathan):
 # Pyssst — Documentation technique
 
 Messagerie chiffrée de bout en bout développée en Python avec PySide6 et MySQL.
@@ -390,12 +377,3 @@ Rafraîchit les contacts puis appelle `self.conversation.verifier_changements()`
 | `re` | Expressions régulières (validation du mot de passe) |
 | `os` | Lecture de la variable d'environnement `PYSSST_SECRET_KEY` |
 | `pathlib` | Gestion des chemins de fichiers (clés .pem) |
-
--A faire(isham):
-Diaporama - Gamma
-Trello
-
-Fonctionnalités supplémentaires : 
-- Le mdp ne doit pas contenir nos prénoms.
-- Modifier, supprimer un message.
-- Vu des messages
