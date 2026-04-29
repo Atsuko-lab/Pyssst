@@ -6,11 +6,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtGui import QFont, QColor
 
-from messages import (
-    get_all_users, get_unread_count, mark_messages_as_read,
-    delete_message_for_me, delete_message_for_everyone,
-    envoyer_message, modifier_message, charger_conversation,
-)
+from auth import Utilisateur
 
 STYLE = """
 QWidget {
@@ -169,11 +165,10 @@ class MessageBubble(QFrame):
 class ChatWindow(QWidget):
     def __init__(self, username):
         super().__init__()
-        self.username = username
-        self.selected_user = None
-        self.last_signature = None
+        self.utilisateur = Utilisateur(username)
+        self.conversation = None
 
-        self.setWindowTitle(f"Pyssst — {username}")
+        self.setWindowTitle(f"Pyssst — {self.utilisateur.pseudo}")
         self.resize(860, 600)
         self.setStyleSheet(STYLE)
         self.setMinimumSize(600, 400)
@@ -202,7 +197,7 @@ class ChatWindow(QWidget):
         self.user_list.itemClicked.connect(self.on_user_click)
         left_layout.addWidget(self.user_list)
 
-        self.user_label_bottom = QLabel(f"Connecté : {username}")
+        self.user_label_bottom = QLabel(f"Connecté : {self.utilisateur.pseudo}")
         self.user_label_bottom.setStyleSheet("color: #6c7086; font-size: 11px; padding-top: 4px;")
         self.user_label_bottom.setWordWrap(True)
         left_layout.addWidget(self.user_label_bottom)
@@ -259,22 +254,26 @@ class ChatWindow(QWidget):
 
     def refresh_users(self):
         self.user_list.clear()
-        for user in get_all_users(self.username):
-            count = get_unread_count(self.username, user)
-            display = f"{user}  🔴 {count}" if count > 0 else user
+        for pseudo in self.utilisateur.get_contacts():
+            conv = self.utilisateur.get_conversation(pseudo)
+            count = conv.non_lus()
+            display = f"{pseudo}  🔴 {count}" if count > 0 else pseudo
             item = QListWidgetItem(display)
-            item.setData(Qt.UserRole, user)
+            item.setData(Qt.UserRole, pseudo)
             self.user_list.addItem(item)
 
     def on_user_click(self, item):
-        self.selected_user = item.data(Qt.UserRole)
-        self.chat_label.setText(f"Conversation avec {self.selected_user}")
-        self.last_signature = None
+        pseudo = item.data(Qt.UserRole)
+        self.conversation = self.utilisateur.get_conversation(pseudo)
+        self.chat_label.setText(f"Conversation avec {pseudo}")
         self.clear_messages()
-        mark_messages_as_read(self.username, self.selected_user)
-        self.load_messages()
+        self.conversation.marquer_lus()
+        self.conversation.charger()
+        for msg in self.conversation.messages:
+            self._add_bubble(msg)
         self.refresh_users()
         self.input.setFocus()
+        self._scroll_to_bottom()
 
     # ── Affichage des messages ────────────────────────────────────────────
 
@@ -286,22 +285,20 @@ class ChatWindow(QWidget):
                 w.deleteLater()
 
     def load_messages(self):
-        messages, sig = charger_conversation(self.username, self.selected_user)
-        self.last_signature = sig
-        for msg in messages:
+        self.conversation.charger()
+        for msg in self.conversation.messages:
             self._add_bubble(msg)
         self._scroll_to_bottom()
 
     def _add_bubble(self, msg):
-        msg_id, expediteur, texte, heure, sent_by_me, modifie, lu = msg
         bubble = MessageBubble(
-            msg_id=msg_id,
-            expediteur=expediteur,
-            texte=texte,
-            heure=heure,
-            sent_by_me=sent_by_me,
-            modifie=modifie,
-            lu=lu,
+            msg_id=msg.id,
+            expediteur=msg.expediteur,
+            texte=msg.texte,
+            heure=msg.heure,
+            sent_by_me=msg.sent_by_me,
+            modifie=msg.modifie,
+            lu=msg.lu,
             on_edit=self.edit_message,
             on_delete=self.delete_message,
         )
@@ -315,19 +312,19 @@ class ChatWindow(QWidget):
     # ── Actions messages ──────────────────────────────────────────────────────
 
     def send_message(self):
-        if not self.selected_user:
+        if not self.conversation:
             QMessageBox.warning(self, "Erreur", "Sélectionne un utilisateur.")
             return
         texte = self.input.text().strip()
         if not texte:
             return
-        envoyer_message(self.username, self.selected_user, texte)
+        self.conversation.envoyer(texte)
         self.input.clear()
         self.clear_messages()
         self.load_messages()
 
     def edit_message(self, msg_id, ancien_texte):
-        if not self.selected_user:
+        if not self.conversation:
             return
         nouveau_texte, ok = QInputDialog.getText(self, "Modifier", "Nouveau message :", text=ancien_texte)
         if not ok:
@@ -336,7 +333,7 @@ class ChatWindow(QWidget):
         if not nouveau_texte:
             QMessageBox.warning(self, "Erreur", "Le message ne peut pas être vide.")
             return
-        if not modifier_message(msg_id, self.username, self.selected_user, nouveau_texte):
+        if not self.conversation.modifier(msg_id, nouveau_texte):
             QMessageBox.warning(self, "Erreur", "Impossible de modifier ce message.")
             return
         self.clear_messages()
@@ -353,9 +350,9 @@ class ChatWindow(QWidget):
         clicked = box.clickedButton()
 
         if clicked == btn_me:
-            ok = delete_message_for_me(msg_id, self.username)
+            ok = self.conversation.supprimer_pour_moi(msg_id)
         elif clicked == btn_all:
-            ok = delete_message_for_everyone(msg_id, self.username)
+            ok = self.conversation.supprimer_pour_tous(msg_id)
         else:
             return
 
@@ -369,14 +366,12 @@ class ChatWindow(QWidget):
 
     def poll(self):
         self.refresh_users()
-        if not self.selected_user:
+        if not self.conversation:
             return
-        messages, sig = charger_conversation(self.username, self.selected_user)
-        if sig == self.last_signature:
+        if not self.conversation.verifier_changements():
             return
-        mark_messages_as_read(self.username, self.selected_user)
+        self.conversation.marquer_lus()
         self.clear_messages()
-        self.last_signature = sig
-        for msg in messages:
+        for msg in self.conversation.messages:
             self._add_bubble(msg)
         self._scroll_to_bottom()

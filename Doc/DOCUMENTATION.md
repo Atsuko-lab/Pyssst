@@ -19,11 +19,11 @@ py main.py
 ProjetMessageHach-/
 ├── main.py              ← point d'entrée
 ├── db.py                ← connexion à la base de données
-├── auth.py              ← inscription, connexion, salage des mots de passe
+├── auth.py              ← inscription, connexion, salage des mots de passe + classe Utilisateur
 ├── crypto.py            ← génération des clés RSA, chiffrement / déchiffrement
-├── messages.py          ← opérations BDD + logique métier des messages
-├── login_resgister.py      ← interface graphique de connexion / inscription
-├── chat.py       ← interface graphique du chat (affichage uniquement)
+├── messages.py          ← opérations BDD + logique métier + classes Message et Conversation
+├── login_resgister.py   ← interface graphique de connexion / inscription
+├── chat.py              ← interface graphique du chat (affichage uniquement)
 ├── clé/                 ← clés privées RSA (.pem) de chaque utilisateur
 └── pyssst.sql           ← schéma complet de la base de données
 ```
@@ -122,7 +122,16 @@ Vérifie que le mot de passe respecte toutes les règles de sécurité :
 
 Retourne un tuple `(True, "")` si valide, ou `(False, "message d'erreur")` sinon.
 
-### `register_user(username, password)`
+---
+
+### `Utilisateur` (classe)
+
+Représente un utilisateur de l'application. Regroupe toute la logique d'authentification et d'accès aux contacts.
+
+#### `__init__(self, pseudo)`
+Initialise l'utilisateur avec son pseudo.
+
+#### `inscrire(self, password)`
 Crée un nouveau compte utilisateur :
 1. Vérifie que les champs ne sont pas vides.
 2. Appelle `validate_password_strength` pour vérifier le mot de passe.
@@ -130,11 +139,11 @@ Crée un nouveau compte utilisateur :
 4. **Crypte** le mot de passe avec `_encrypt_password` (HMAC-SHA256).
 5. **Sale et hache** le résultat avec `_salt_and_hash` (bcrypt + sel aléatoire).
 6. Génère une paire de clés RSA avec `generate_and_store_keys`.
-6. Insère l'utilisateur en BDD avec le hash et la clé publique.
+7. Insère l'utilisateur en BDD avec le hash et la clé publique.
 
 Retourne `(True, message)` ou `(False, message_erreur)`.
 
-### `login_user(username, password)`
+#### `connecter(self, password)`
 Vérifie les identifiants d'un utilisateur :
 1. Vérifie que les champs ne sont pas vides.
 2. Récupère le hash stocké en BDD pour ce pseudo.
@@ -143,15 +152,18 @@ Vérifie les identifiants d'un utilisateur :
 
 Retourne `(True, "Connexion réussie.")` ou `(False, message_erreur)`.
 
+#### `get_contacts(self)`
+Retourne la liste de tous les pseudos enregistrés en BDD, **sauf** cet utilisateur.
+Utilisé pour remplir la liste des contacts dans le chat.
+
+#### `get_conversation(self, autre_pseudo)`
+Retourne une instance `Conversation` (de `messages.py`) entre cet utilisateur et `autre_pseudo`.
+
 ---
 
 ## `messages.py` — Gestion des messages en BDD
 
-Contient toutes les fonctions qui lisent ou modifient la table `messages`.
-
-### `get_all_users(exclude)`
-Retourne la liste de tous les pseudos enregistrés en BDD, **sauf** l'utilisateur passé en paramètre.  
-Utilisé pour remplir la liste des contacts dans le chat.
+Contient toutes les fonctions bas niveau qui lisent ou modifient la table `messages`, ainsi que les classes `Message` et `Conversation`.
 
 ### `get_public_key(username)`
 Récupère et retourne la clé publique RSA (format PEM string) d'un utilisateur depuis la BDD.  
@@ -196,29 +208,55 @@ Retourne une liste de tuples bruts depuis la BDD (avec les champs chiffrés).
 
 ---
 
-### Fonctions de haut niveau (appelées par l'interface)
+### `Message` (classe)
 
-Ces fonctions encapsulent la logique métier complète — l'interface graphique ne touche jamais directement au chiffrement ou aux requêtes SQL.
+Représente un message individuel déjà déchiffré, prêt à être affiché.
 
-### `envoyer_message(expediteur, destinataire, texte)`
-Chiffre le texte deux fois (avec la clé publique du destinataire et celle de l'expéditeur) puis sauvegarde en BDD via `save_message`.  
-C'est la seule fonction à appeler pour envoyer un message.
+#### `__init__(self, msg_id, expediteur, texte, heure, sent_by_me, modifie, lu)`
+Stocke toutes les données d'un message en texte clair : identifiant, expéditeur, contenu, heure, appartenance, état de modification et état de lecture.
 
-### `modifier_message(msg_id, expediteur, destinataire, nouveau_texte)`
-Rechiffre le nouveau texte pour les deux parties et met à jour le message en BDD via `update_message`.  
-Retourne `True` si la modification a eu lieu, `False` sinon.
+---
 
-### `charger_conversation(viewer, other_user)`
-Charge tous les messages d'une conversation, les déchiffre avec la clé privée de `viewer`, et calcule la signature de l'état actuel.  
-Retourne un tuple `(liste_messages, signature)` où chaque message est `(msg_id, expediteur, texte, heure, sent_by_me, modifie, lu)`.  
-C'est la seule fonction à appeler pour afficher une conversation.
+### `Conversation` (classe)
+
+Représente l'échange entre deux utilisateurs. C'est la classe centrale de la logique de chat.
+
+#### `__init__(self, utilisateur, autre)`
+Initialise la conversation entre deux instances `Utilisateur`. `self.messages` est une liste de `Message`, `self.signature` est l'empreinte de l'état courant.
+
+#### `charger(self)`
+Charge tous les messages depuis la BDD, les déchiffre avec la clé privée de l'utilisateur connecté et met à jour `self.messages` et `self.signature`.
+
+#### `verifier_changements(self)`
+Vérifie si la conversation a changé depuis le dernier chargement en comparant les signatures.  
+Si oui, recharge et déchiffre les messages, met à jour `self.messages` et `self.signature`, retourne `True`.  
+Retourne `False` si rien n'a changé. Utilisée par le polling.
+
+#### `envoyer(self, texte)`
+Chiffre le texte avec les clés publiques des deux parties et insère le message en BDD.
+
+#### `modifier(self, msg_id, nouveau_texte)`
+Rechiffre le nouveau texte pour les deux parties et met à jour le message en BDD.  
+Retourne `True` si réussi, `False` sinon.
+
+#### `supprimer_pour_moi(self, msg_id)`
+Cache le message uniquement pour l'utilisateur connecté (`cache_par_expediteur = 1`).
+
+#### `supprimer_pour_tous(self, msg_id)`
+Supprime le message pour les deux côtés de la conversation (`supprime_pour_tous = 1`).
+
+#### `marquer_lus(self)`
+Marque tous les messages reçus de l'autre utilisateur comme lus.
+
+#### `non_lus(self)`
+Retourne le nombre de messages non lus dans cette conversation.
 
 ---
 
 ## `login_resgister.py` — Interface de connexion
 
 Interface graphique de la page d'accueil. Thème sombre Catppuccin Mocha.  
-Ce fichier gère **uniquement l'affichage** — la logique d'inscription et d'authentification est dans `auth.py`.
+Ce fichier gère **uniquement l'affichage** — il utilise la classe `Utilisateur` d'`auth.py` pour toute la logique.
 
 ### `LoginWindow` (classe)
 Fenêtre fixe 400×440 px avec un formulaire centré dans une carte arrondie.
@@ -228,12 +266,12 @@ Construit l'interface : titre, sous-titre, champ pseudo, champ mot de passe (mas
 La touche **Entrée** dans le champ mot de passe déclenche la connexion.
 
 #### `login(self)`
-Récupère les valeurs des champs et appelle `login_user`.  
+Crée une instance `Utilisateur` et appelle `.connecter()`.  
 Si succès → ouvre `ChatWindow` et ferme la fenêtre de login.  
 Si échec → affiche une boîte d'alerte avec le message d'erreur.
 
 #### `register(self)`
-Récupère les valeurs des champs et appelle `register_user`.  
+Crée une instance `Utilisateur` et appelle `.inscrire()`.  
 Affiche un message de succès ou d'erreur selon le résultat.
 
 ---
@@ -241,7 +279,7 @@ Affiche un message de succès ou d'erreur selon le résultat.
 ## `chat.py` — Interface de chat
 
 Interface principale du chat. Divisée en panneau gauche (liste des contacts) et panneau droit (conversation + saisie).  
-Ce fichier gère **uniquement l'affichage** — la logique métier (chiffrement, déchiffrement, BDD) est entièrement dans `messages.py`.
+Ce fichier gère **uniquement l'affichage** — il utilise `Utilisateur` d'`auth.py` et `Conversation`/`Message` de `messages.py`.
 
 ### `MessageBubble` (classe)
 Widget graphique représentant une seule bulle de message.
@@ -260,48 +298,42 @@ Construit la bulle visuellement :
 Fenêtre principale du chat, redimensionnable (minimum 600×400).
 
 #### `__init__(self, username)`
-Initialise la fenêtre, construit l'interface (panneau gauche + panneau droit), remplit la liste des contacts et démarre un timer qui rafraîchit les messages toutes les **2 secondes**.  
-La clé privée n'est **pas** chargée ici — elle est chargée à la demande dans `messages.charger_conversation()`.
+Initialise `self.utilisateur` (instance `Utilisateur`) et `self.conversation = None`.  
+Construit l'interface, remplit la liste des contacts et démarre un timer qui rafraîchit toutes les **2 secondes**.
 
 #### `refresh_users(self)`
-Vide et recharge la liste des contacts depuis la BDD.  
-Pour chaque contact, récupère le nombre de messages non lus et affiche un badge 🔴 si > 0.
+Vide et recharge la liste des contacts via `self.utilisateur.get_contacts()`.  
+Pour chaque contact, crée une `Conversation` temporaire pour obtenir le nombre de messages non lus et affiche un badge 🔴 si > 0.
 
 #### `on_user_click(self, item)`
-Appelée quand on clique sur un contact.  
-Met à jour le contact sélectionné, marque ses messages comme lus, charge la conversation et met le focus sur le champ de saisie.
+Crée une instance `Conversation` via `self.utilisateur.get_conversation()`, marque les messages comme lus, charge et affiche la conversation.
 
 #### `clear_messages(self)`
 Supprime tous les widgets de bulles du panneau de messages (nettoyage avant rechargement).
 
 #### `load_messages(self)`
-Appelle `charger_conversation()` depuis `messages.py` qui récupère, déchiffre et retourne les messages avec leur signature.  
-Crée une bulle pour chaque message et fait défiler automatiquement vers le bas.
+Appelle `self.conversation.charger()` puis affiche chaque `Message` via `_add_bubble()`.
 
 #### `_add_bubble(self, msg)`
-Reçoit un message déjà déchiffré `(msg_id, expediteur, texte, heure, sent_by_me, modifie, lu)` et crée le widget `MessageBubble` correspondant.
+Reçoit une instance `Message` et crée le widget `MessageBubble` correspondant.
 
 #### `_scroll_to_bottom(self)`
 Fait défiler la zone de messages jusqu'en bas après un court délai (pour laisser Qt finir le rendu).
 
----
-Envoie un message :
-1. Vérifie qu'un destinataire est sélectionné et que le champ n'est pas vide.
-2. Appelle `envoyer_message()` depuis `messages.py` qui gère le chiffrement et la sauvegarde.
-3. Recharge la conversation.
+#### `send_message(self)`
+Appelle `self.conversation.envoyer()` puis recharge l'affichage.
 
 #### `edit_message(self, msg_id, ancien_texte)`
-Ouvre une boîte de dialogue pour modifier le texte d'un message.  
-Appelle `modifier_message()` depuis `messages.py` qui gère le rechiffrement et la mise à jour en BDD.
+Ouvre une boîte de dialogue et appelle `self.conversation.modifier()`.
 
 #### `delete_message(self, msg_id)`
 Ouvre une boîte de dialogue avec le choix :
-- **"Pour moi"** → cache le message uniquement pour l'expéditeur.
-- **"Pour tout le monde"** → supprime le message pour les deux côtés.
+- **"Pour moi"** → appelle `self.conversation.supprimer_pour_moi()`.
+- **"Pour tout le monde"** → appelle `self.conversation.supprimer_pour_tous()`.
 
 #### `poll(self)`
-Appelée automatiquement toutes les 2 secondes par le timer.  
-Rafraîchit la liste des contacts (badges non lus), puis appelle `charger_conversation()` pour détecter si la conversation a changé. Si oui, recharge les bulles.
+Appelée automatiquement toutes les 2 secondes.  
+Rafraîchit les contacts puis appelle `self.conversation.verifier_changements()`. Si la conversation a changé, recharge les bulles.
 
 ---
 

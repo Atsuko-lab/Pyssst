@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
-from auth import register_user, login_user
+from auth import Utilisateur
 
 STYLE = """
 QWidget {
@@ -119,21 +119,23 @@ class LoginWindow(QWidget):
         outer.addWidget(card)
 
     def login(self):
-        username = self.username_input.text()
+        username = self.username_input.text().strip()
         password = self.password_input.text()
-        ok, message = login_user(username, password)
+        utilisateur = Utilisateur(username)
+        ok, message = utilisateur.connecter(password)
         if ok:
             from chat import ChatWindow
-            self.chat = ChatWindow(username.strip())
+            self.chat = ChatWindow(username)
             self.chat.show()
             self.close()
         else:
             QMessageBox.warning(self, "Connexion", message)
 
     def register(self):
-        username = self.username_input.text()
+        username = self.username_input.text().strip()
         password = self.password_input.text()
-        ok, message = register_user(username, password)
+        utilisateur = Utilisateur(username)
+        ok, message = utilisateur.inscrire(password)
         if ok:
             QMessageBox.information(self, "Inscription", message)
         else:

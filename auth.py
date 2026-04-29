@@ -37,67 +37,96 @@ def validate_password_strength(password):
     return True, ""
 
 
-def register_user(username, password):
-    username = username.strip()
-    if username == "" or password == "":
-        return False, "Username et mot de passe obligatoires."
+class Utilisateur:
+    """Représente un utilisateur de l'application."""
 
-    ok, message = validate_password_strength(password)
-    if not ok:
-        return False, message
+    def __init__(self, pseudo):
+        self.pseudo = pseudo
 
-    conn = None
-    cursor = None
-    try:
+    def inscrire(self, password):
+        """Crée le compte en BDD et génère les clés RSA.
+        Retourne (True, message) ou (False, message_erreur).
+        """
+        username = self.pseudo.strip()
+        if username == "" or password == "":
+            return False, "Username et mot de passe obligatoires."
+
+        ok, message = validate_password_strength(password)
+        if not ok:
+            return False, message
+
+        conn = None
+        cursor = None
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT pseudo FROM users WHERE pseudo = %s", (username,))
+            if cursor.fetchone() is not None:
+                return False, "Ce username existe déjà."
+
+            encrypted = _encrypt_password(password)
+            hashed_password_str = _salt_and_hash(encrypted)
+            _, public_key_pem = generate_and_store_keys(username)
+
+            cursor.execute(
+                "INSERT INTO users (pseudo, motdepasseHASH_SAL, `cléPublic`) VALUES (%s, %s, %s)",
+                (username, hashed_password_str, public_key_pem),
+            )
+            conn.commit()
+            return True, "Inscription réussie. Clé privée enregistrée dans le dossier 'clé'."
+        except mysql.connector.Error as e:
+            return False, format_db_error(e)
+        finally:
+            if cursor is not None:
+                cursor.close()
+            if conn is not None:
+                conn.close()
+
+    def connecter(self, password):
+        """Vérifie les identifiants de connexion.
+        Retourne (True, message) ou (False, message_erreur).
+        """
+        username = self.pseudo.strip()
+        if username == "" or password == "":
+            return False, "Username et mot de passe obligatoires."
+
+        conn = None
+        cursor = None
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT motdepasseHASH_SAL FROM users WHERE pseudo = %s", (username,))
+            row = cursor.fetchone()
+            if row is None:
+                return False, "Utilisateur introuvable."
+
+            stored_hash = row[0].encode("utf-8")
+            encrypted = _encrypt_password(password)
+            if bcrypt.checkpw(encrypted.encode("utf-8"), stored_hash):
+                return True, "Connexion réussie."
+            return False, "Mot de passe incorrect."
+        except mysql.connector.Error as e:
+            return False, format_db_error(e)
+        finally:
+            if cursor is not None:
+                cursor.close()
+            if conn is not None:
+                conn.close()
+
+    def get_contacts(self):
+        """Retourne la liste des pseudos de tous les autres utilisateurs."""
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT pseudo FROM users WHERE pseudo = %s", (username,))
-        if cursor.fetchone() is not None:
-            return False, "Ce username existe déjà."
+        cursor.execute("SELECT pseudo FROM users WHERE pseudo != %s", (self.pseudo,))
+        users = [row[0] for row in cursor.fetchall()]
+        cursor.close()
+        conn.close()
+        return users
 
-        encrypted = _encrypt_password(password)
-        hashed_password_str = _salt_and_hash(encrypted)
-        _, public_key_pem = generate_and_store_keys(username)
+    def get_conversation(self, autre_pseudo):
+        """Retourne une instance Conversation avec l'utilisateur donné."""
+        from messages import Conversation
+        return Conversation(self, Utilisateur(autre_pseudo))
 
-        cursor.execute(
-            "INSERT INTO users (pseudo, motdepasseHASH_SAL, `cléPublic`) VALUES (%s, %s, %s)",
-            (username, hashed_password_str, public_key_pem),
-        )
-        conn.commit()
-        return True, "Inscription réussie. Clé privée enregistrée dans le dossier 'clé'."
-    except mysql.connector.Error as e:
-        return False, format_db_error(e)
-    finally:
-        if cursor is not None:
-            cursor.close()
-        if conn is not None:
-            conn.close()
-
-
-def login_user(username, password):
-    username = username.strip()
-    if username == "" or password == "":
-        return False, "Username et mot de passe obligatoires."
-
-    conn = None
-    cursor = None
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT motdepasseHASH_SAL FROM users WHERE pseudo = %s", (username,))
-        row = cursor.fetchone()
-        if row is None:
-            return False, "Utilisateur introuvable."
-
-        stored_hash = row[0].encode("utf-8")
-        encrypted = _encrypt_password(password)
-        if bcrypt.checkpw(encrypted.encode("utf-8"), stored_hash):
-            return True, "Connexion réussie."
-        return False, "Mot de passe incorrect."
-    except mysql.connector.Error as e:
-        return False, format_db_error(e)
-    finally:
-        if cursor is not None:
-            cursor.close()
-        if conn is not None:
-            conn.close()
+    def __repr__(self):
+        return f"Utilisateur(pseudo={self.pseudo!r})"
