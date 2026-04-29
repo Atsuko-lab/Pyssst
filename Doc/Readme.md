@@ -384,4 +384,33 @@ Rafraîchit les contacts puis appelle `self.conversation.verifier_changements()`
 
 | `os` | Lecture de la variable d'environnement `PYSSST_SECRET_KEY` | Nous avons choisi `os` car elle nous permettait de lire la clé secrète depuis l'environnement système plutôt que de l'écrire directement dans le code, ce qui évite de l'exposer accidentellement si le projet est partagé. |
 
-| `pathlib` | Gestion des chemins de fichiers (clés .pem) | Nous avons choisi `pathlib` car elle rendait la gestion des chemins vers nos fichiers de clés beaucoup plus lisible et fiable, en évitant les problèmes de compatibilité entre Windows et Linux que l'on aurait eus avec de simples chaînes de caractères. |
+| `pathlib` | Gestion des chemins de fichiers (clés .pem) | Nous avons choisi `pathlib` car elle rendait la gestion des chemins vers nos fichiers de clés beaucoup plus lisible et fiable, en évitant les problèmes de compatibilité entre Windows et Linux que l'on aurait eus avec de simples chaînes de caractères.|
+
+---
+
+## Fonctionnalités supplémentaires
+
+### 1. Suppression de messages
+
+Nous avons ajouté la possibilité de supprimer un message de deux façons différentes :
+
+- **Supprimer pour moi** : le message disparaît uniquement de notre côté, l'autre personne continue de le voir normalement. Nous avons implémenté cela avec un champ `cache_par_expediteur` en base de données, ce qui évite de vraiment effacer le message et de casser la conversation de l'autre côté.
+- **Supprimer pour tout le monde** : le message disparaît des deux côtés. Dans ce cas, nous vidons le contenu chiffré stocké en base et on marque le message comme `supprime_pour_tous`, ce qui nous permettait de garder une trace de la suppression sans exposer le contenu.
+
+Nous avons choisi cette fonctionnalité car elle nous semblait essentielle dans une messagerie moderne (comme WhatsApp), et elle s'intégrait bien avec notre système de chiffrement puisqu'on manipule directement le contenu chiffré sans jamais avoir à déchiffrer quoi que ce soit côté serveur.
+
+---
+
+### 2. Modification d'un message envoyé
+
+Nous avons permis à un utilisateur de modifier un message qu'il a déjà envoyé. Quand on modifie un message, on rechiffre le nouveau texte avec la clé publique du destinataire **et** avec la nôtre, exactement comme lors d'un envoi classique, puis on met à jour les deux versions chiffrées en base de données.
+
+Un indicateur **"modifié"** s'affiche ensuite sous le message pour que le destinataire sache que le contenu a changé depuis l'envoi initial. Nous avons ajouté cette fonctionnalité car il nous paraissait important de pouvoir corriger une faute ou un message envoyé par erreur, tout en maintenant la sécurité de bout en bout : à aucun moment le serveur ne voit le nouveau texte en clair.
+
+---
+
+### 3. Restriction sur les mots de passe
+
+Lors de la création d'un compte, nous avons interdit l'utilisation des prénoms des membres du groupe (`nathan`, `isham`, `fady`) comme mot de passe.
+
+Soyons honnêtes : on a ajouté ça parce qu'on trouvait ça drôle. Mais ça illustre quand même un concept réel : la liste noire de mots de passe, utilisée par des services comme Google ou GitHub pour interdire les mots de passe trop évidents. Dans notre cas, les mots de passe les plus évidents, c'était nos prénoms.
