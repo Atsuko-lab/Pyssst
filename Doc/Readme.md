@@ -399,18 +399,43 @@ Nous avons ajouté la possibilité de supprimer un message de deux façons diff�
 
 Nous avons choisi cette fonctionnalité car elle nous semblait essentielle dans une messagerie moderne (comme WhatsApp), et elle s'intégrait bien avec notre système de chiffrement puisqu'on manipule directement le contenu chiffré sans jamais avoir à déchiffrer quoi que ce soit côté serveur.
 
----
-
 ### 2. Modification d'un message envoyé
 
 Nous avons permis à un utilisateur de modifier un message qu'il a déjà envoyé. Quand on modifie un message, on rechiffre le nouveau texte avec la clé publique du destinataire **et** avec la nôtre, exactement comme lors d'un envoi classique, puis on met à jour les deux versions chiffrées en base de données.
 
 Un indicateur **"modifié"** s'affiche ensuite sous le message pour que le destinataire sache que le contenu a changé depuis l'envoi initial. Nous avons ajouté cette fonctionnalité car il nous paraissait important de pouvoir corriger une faute ou un message envoyé par erreur, tout en maintenant la sécurité de bout en bout : à aucun moment le serveur ne voit le nouveau texte en clair.
 
----
-
 ### 3. Restriction sur les mots de passe
 
 Lors de la création d'un compte, nous avons interdit l'utilisation des prénoms des membres du groupe (`nathan`, `isham`, `fady`) comme mot de passe.
 
 Soyons honnêtes : on a ajouté ça parce qu'on trouvait ça drôle. Mais ça illustre quand même un concept réel : la liste noire de mots de passe, utilisée par des services comme Google ou GitHub pour interdire les mots de passe trop évidents. Dans notre cas, les mots de passe les plus évidents, c'était nos prénoms.
+
+---
+
+## Tests effectués
+
+
+### 1. Hachage et salage des mots de passe
+
+Nous avons regardé directement dans la base de données après la création d'un compte pour vérifier que le mot de passe stocké n'était pas en clair. Le champ `password` contenait bien une longue chaîne de caractères illisible générée par `bcrypt`, et non le mot de passe original. Nous avons aussi vérifié qu'en créant deux comptes avec le même mot de passe, les deux hashs stockés en base étaient différents, ce qui confirme bien que le salage fonctionne.
+
+### 2. Impossibilité de récupérer les mots de passe
+
+Toujours en regardant directement la base de données, nous avons confirmé qu'il est impossible de retrouver le mot de passe original à partir du hash stocké. Même en connaissant l'algorithme utilisé (`bcrypt`), le hash ne peut pas être inversé. La seule façon de valider un mot de passe est de le hasher à nouveau et de comparer, ce que fait notre application à la connexion.
+
+### 3. Chiffrement des messages en base de données
+
+Nous avons envoyé des messages entre deux comptes puis sommes allés regarder directement dans la table `messages` de la base de données. Le contenu stocké dans les colonnes `contenu_chiffre_dest` et `contenu_chiffre_exp` était bien une suite de bytes illisibles, correspondant au message chiffré en RSA-OAEP. Il est donc impossible pour quelqu'un ayant accès à la base de données de lire les conversations sans posséder la clé privée du destinataire, qui elle est stockée uniquement sur la machine du client.
+
+### 4. Modification d'un message
+
+Nous avons modifié un message déjà envoyé depuis l'interface, puis avons vérifié dans la base de données que le contenu chiffré avait bien été mis à jour dans les deux colonnes (`contenu_chiffre_dest` et `contenu_chiffre_exp`), et que le champ `modifie_le` contenait bien la date et l'heure de la modification. Côté interface, l'indicateur **"modifié"** apparaissait bien sous le message pour les deux utilisateurs.
+
+### 5. Suppression d'un message pour soi
+
+Nous avons supprimé un message en choisissant "Supprimer pour moi", puis avons vérifié que le message n'apparaissait plus dans notre interface mais restait visible côté destinataire. En base de données, nous avons confirmé que le champ `cache_par_expediteur` était bien passé à `1`, et que le message n'avait pas été effacé.
+
+### 6. Suppression d'un message pour tout le monde
+
+Nous avons supprimé un message en choisissant "Supprimer pour tout le monde", puis avons vérifié que le message disparaissait bien des deux côtés de la conversation sans avoir besoin de recharger l'application, grâce au système de polling qui rafraîchit automatiquement toutes les 2 secondes. En base de données, nous avons confirmé que le champ `supprime_pour_tous` était bien passé à `1` et que le contenu chiffré avait été vidé.
