@@ -3,7 +3,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QMessageBox, QFrame,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
 
 from auth import register_user, login_user
 
@@ -124,7 +123,7 @@ class LoginWindow(QWidget):
         password = self.password_input.text()
         ok, message = login_user(username, password)
         if ok:
-            from ui.chat_window import ChatWindow
+            from chat import ChatWindow
             self.chat = ChatWindow(username.strip())
             self.chat.show()
             self.close()

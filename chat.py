@@ -1,237 +1,253 @@
-from pathlib import Path
-
-import mysql.connector
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
-from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMessageBox,
-    QInputDialog,
-    QPushButton, QVBoxLayout, QWidget,
+    QWidget, QLabel, QLineEdit, QPushButton,
+    QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
+    QMessageBox, QInputDialog, QScrollArea, QFrame, QSizePolicy,
+)
+from PySide6.QtCore import Qt, QTimer, QSize
+from PySide6.QtGui import QFont, QColor
+
+from messages import (
+    get_all_users, get_unread_count, mark_messages_as_read,
+    delete_message_for_me, delete_message_for_everyone,
+    envoyer_message, modifier_message, charger_conversation,
 )
 
-DB_CONFIG = {
-    "host": "localhost",
-    "user": "root",
-    "password": "",
-    "database": "pyssst",
+STYLE = """
+QWidget {
+    background-color: #1e1e2e;
+    color: #cdd6f4;
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 13px;
 }
-
-PRIVATE_KEY_DIR = Path(__file__).resolve().parent
-
-
-def get_connection():
-    return mysql.connector.connect(**DB_CONFIG)
-
-
-def get_all_users(exclude):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT pseudo FROM users WHERE pseudo != %s", (exclude,))
-    users = [row[0] for row in cursor.fetchall()]
-    cursor.close()
-    conn.close()
-    return users
-
-
-def get_public_key(username):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT `cléPublic` FROM users WHERE pseudo = %s", (username,))
-    row = cursor.fetchone()
-    cursor.close()
-    conn.close()
-    return row[0]
-
-
-def save_message(expediteur, destinataire, chiffre_dest, chiffre_exp):
-    conn = get_connection()
-    cursor = conn.cursor()
-    expediteur = str(expediteur).strip()
-    destinataire = str(destinataire).strip()
-    cursor.execute(
-        "INSERT INTO messages (expediteur, destinataire, contenu_chiffre_dest, contenu_chiffre_exp) VALUES (%s, %s, %s, %s)",
-        (expediteur, destinataire, chiffre_dest, chiffre_exp),
-    )
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-
-def update_message(msg_id, expediteur, chiffre_dest, chiffre_exp):
-    conn = None
-    cursor = None
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE messages "
-            "SET contenu_chiffre_dest = %s, contenu_chiffre_exp = %s, modifie_le = NOW() "
-            "WHERE id = %s AND expediteur = %s AND COALESCE(supprime_pour_tous, 0) = 0",
-            (chiffre_dest, chiffre_exp, msg_id, expediteur),
-        )
-        conn.commit()
-        return cursor.rowcount == 1
-    except mysql.connector.Error:
-        return False
-    finally:
-        if cursor is not None:
-            cursor.close()
-        if conn is not None:
-            conn.close()
-
-
-def delete_message_for_me(msg_id, expediteur):
-    conn = None
-    cursor = None
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE messages "
-            "SET cache_par_expediteur = 1 "
-            "WHERE id = %s AND expediteur = %s AND COALESCE(supprime_pour_tous, 0) = 0",
-            (msg_id, expediteur),
-        )
-        conn.commit()
-        return cursor.rowcount == 1
-    except mysql.connector.Error:
-        return False
-    finally:
-        if cursor is not None:
-            cursor.close()
-        if conn is not None:
-            conn.close()
+QListWidget {
+    background-color: #181825;
+    border: none;
+    border-radius: 8px;
+    padding: 4px;
+}
+QListWidget::item {
+    padding: 10px 8px;
+    border-radius: 6px;
+}
+QListWidget::item:selected {
+    background-color: #313244;
+    color: #cba6f7;
+}
+QListWidget::item:hover {
+    background-color: #2a2b3c;
+}
+QScrollArea {
+    border: none;
+    background-color: #1e1e2e;
+}
+QLineEdit {
+    background-color: #313244;
+    border: 1px solid #585b70;
+    border-radius: 8px;
+    padding: 9px 12px;
+    color: #cdd6f4;
+    font-size: 13px;
+}
+QLineEdit:focus {
+    border: 1px solid #cba6f7;
+}
+QPushButton#send_btn {
+    background-color: #cba6f7;
+    color: #1e1e2e;
+    border: none;
+    border-radius: 8px;
+    padding: 9px 18px;
+    font-weight: bold;
+    font-size: 13px;
+    min-width: 80px;
+}
+QPushButton#send_btn:hover {
+    background-color: #b4befe;
+}
+QPushButton#action_btn {
+    background-color: transparent;
+    color: #a6adc8;
+    border: 1px solid #45475a;
+    border-radius: 5px;
+    padding: 2px 8px;
+    font-size: 11px;
+}
+QPushButton#action_btn:hover {
+    background-color: #313244;
+    color: #cdd6f4;
+}
+QLabel#header_label {
+    font-size: 15px;
+    font-weight: bold;
+    color: #cba6f7;
+    padding: 6px 0;
+}
+QLabel#section_label {
+    font-size: 12px;
+    color: #a6adc8;
+    padding: 6px 4px 2px 4px;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+"""
 
 
-def delete_message_for_everyone(msg_id, expediteur):
-    conn = None
-    cursor = None
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE messages "
-            "SET supprime_pour_tous = 1, supprime_le = NOW(), contenu_chiffre_dest = %s, contenu_chiffre_exp = %s "
-            "WHERE id = %s AND expediteur = %s AND COALESCE(supprime_pour_tous, 0) = 0",
-            (b"", b"", msg_id, expediteur),
-        )
-        conn.commit()
-        return cursor.rowcount == 1
-    except mysql.connector.Error:
-        return False
-    finally:
-        if cursor is not None:
-            cursor.close()
-        if conn is not None:
-            conn.close()
+class MessageBubble(QFrame):
+    """Bulle de message individuelle."""
 
+    def __init__(self, msg_id, expediteur, texte, heure, sent_by_me, modifie, lu, on_edit, on_delete):
+        super().__init__()
+        self.setObjectName("bubble")
 
-def fetch_messages(viewer, other_user):
-    conn = None
-    cursor = None
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                "SELECT id, expediteur, destinataire, contenu_chiffre_dest, contenu_chiffre_exp, envoye_le, modifie_le "
-                "FROM messages "
-                "WHERE ((expediteur = %s AND destinataire = %s) OR (expediteur = %s AND destinataire = %s)) "
-                "AND COALESCE(supprime_pour_tous, 0) = 0 "
-                "AND NOT ((expediteur = %s AND COALESCE(cache_par_expediteur, 0) = 1) OR (destinataire = %s AND COALESCE(cache_par_destinataire, 0) = 1)) "
-                "ORDER BY envoye_le ASC",
-                (viewer, other_user, other_user, viewer, viewer, viewer),
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(8, 2, 8, 2)
+
+        bubble = QFrame()
+        bubble.setMaximumWidth(480)
+
+        if sent_by_me:
+            bubble.setStyleSheet(
+                "QFrame { background-color: #4c3f77; border-radius: 10px; padding: 6px 10px; }"
             )
-        except mysql.connector.Error as e:
-            if getattr(e, "errno", None) != 1054:
-                raise
-            cursor.execute(
-                "SELECT id, expediteur, destinataire, contenu_chiffre_dest, contenu_chiffre_exp, envoye_le, NULL as modifie_le "
-                "FROM messages "
-                "WHERE ((expediteur = %s AND destinataire = %s) OR (expediteur = %s AND destinataire = %s)) "
-                "ORDER BY envoye_le ASC",
-                (viewer, other_user, other_user, viewer),
+        else:
+            bubble.setStyleSheet(
+                "QFrame { background-color: #313244; border-radius: 10px; padding: 6px 10px; }"
             )
-        return cursor.fetchall()
-    finally:
-        if cursor is not None:
-            cursor.close()
-        if conn is not None:
-            conn.close()
 
+        blayout = QVBoxLayout(bubble)
+        blayout.setSpacing(2)
+        blayout.setContentsMargins(8, 6, 8, 6)
 
-# le saint chiffrement
+        if not sent_by_me:
+            name_lbl = QLabel(expediteur)
+            name_lbl.setStyleSheet("color: #89b4fa; font-weight: bold; font-size: 11px;")
+            blayout.addWidget(name_lbl)
 
-def load_private_key(username):
-    key_path = PRIVATE_KEY_DIR / f"{username}_private_key.pem"
-    with open(key_path, "rb") as f:
-        return serialization.load_pem_private_key(f.read(), password=None)
+        text_lbl = QLabel(texte)
+        text_lbl.setWordWrap(True)
+        text_lbl.setStyleSheet("color: #cdd6f4; font-size: 13px;")
+        blayout.addWidget(text_lbl)
 
+        meta_row = QHBoxLayout()
+        meta_row.setSpacing(4)
 
-def encrypt(message, public_key_pem):
-    public_key = serialization.load_pem_public_key(public_key_pem.encode())
-    return public_key.encrypt(
-        message.encode(),
-        padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
-    )
+        suffix = " · modifié" if modifie else ""
+        time_lbl = QLabel(f"{heure}{suffix}")
+        time_lbl.setStyleSheet("color: #6c7086; font-size: 10px;")
+        meta_row.addWidget(time_lbl)
 
+        # Indicateur vu / non vu (uniquement pour mes messages)
+        if sent_by_me:
+            seen_lbl = QLabel("✓✓" if lu else "✓")
+            seen_lbl.setStyleSheet(
+                f"color: {'#89b4fa' if lu else '#6c7086'}; font-size: 10px;"
+            )
+            meta_row.addWidget(seen_lbl)
 
-def decrypt(ciphertext, private_key):
-    return private_key.decrypt(
-        bytes(ciphertext),
-        padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
-    ).decode()
+        meta_row.addStretch()
 
+        if sent_by_me:
+            edit_btn = QPushButton("Modifier")
+            edit_btn.setObjectName("action_btn")
+            edit_btn.clicked.connect(lambda: on_edit(msg_id, texte))
+            del_btn = QPushButton("Supprimer")
+            del_btn.setObjectName("action_btn")
+            del_btn.clicked.connect(lambda: on_delete(msg_id))
+            meta_row.addWidget(edit_btn)
+            meta_row.addWidget(del_btn)
 
-#le chat pour chatter
+        blayout.addLayout(meta_row)
+
+        if sent_by_me:
+            outer.addStretch()
+            outer.addWidget(bubble)
+        else:
+            outer.addWidget(bubble)
+            outer.addStretch()
+
 
 class ChatWindow(QWidget):
     def __init__(self, username):
         super().__init__()
         self.username = username
         self.selected_user = None
-        self.private_key = load_private_key(username)
-        self.last_id = 0
         self.last_signature = None
 
-        self.setWindowTitle(f"Chat — {username}")
-        self.resize(700, 500)
+        self.setWindowTitle(f"Pyssst — {username}")
+        self.resize(860, 600)
+        self.setStyleSheet(STYLE)
+        self.setMinimumSize(600, 400)
 
         main = QHBoxLayout(self)
+        main.setSpacing(0)
+        main.setContentsMargins(0, 0, 0, 0)
 
-        left = QVBoxLayout()
-        left.addWidget(QLabel("Utilisateurs :"))
+        # ── Panneau gauche ─────────────────────────────────────────────────
+        left_widget = QWidget()
+        left_widget.setFixedWidth(200)
+        left_widget.setStyleSheet("background-color: #181825;")
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(10, 14, 10, 10)
+        left_layout.setSpacing(6)
+
+        app_label = QLabel("💬 Pyssst")
+        app_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #cba6f7; padding-bottom: 4px;")
+        left_layout.addWidget(app_label)
+
+        users_label = QLabel("UTILISATEURS")
+        users_label.setObjectName("section_label")
+        left_layout.addWidget(users_label)
+
         self.user_list = QListWidget()
         self.user_list.itemClicked.connect(self.on_user_click)
-        left.addWidget(self.user_list)
-        left_widget = QWidget()
-        left_widget.setFixedWidth(160)
-        left_widget.setLayout(left)
+        left_layout.addWidget(self.user_list)
 
-        right = QVBoxLayout()
-        self.chat_label = QLabel("Sélectionne un utilisateur")
-        right.addWidget(self.chat_label)
+        self.user_label_bottom = QLabel(f"Connecté : {username}")
+        self.user_label_bottom.setStyleSheet("color: #6c7086; font-size: 11px; padding-top: 4px;")
+        self.user_label_bottom.setWordWrap(True)
+        left_layout.addWidget(self.user_label_bottom)
 
-        self.messages_area = QVBoxLayout()
-        self.messages_area.setAlignment(Qt.AlignTop)
-        messages_widget = QWidget()
-        messages_widget.setLayout(self.messages_area)
-        right.addWidget(messages_widget)
+        # ── Panneau droite ─────────────────────────────────────────────────
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(12, 12, 12, 12)
+        right_layout.setSpacing(8)
 
+        self.chat_label = QLabel("← Sélectionne un utilisateur pour commencer")
+        self.chat_label.setObjectName("header_label")
+        right_layout.addWidget(self.chat_label)
+
+        # Zone de défilement des messages
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setStyleSheet("background-color: #1e1e2e; border: none;")
+
+        self.messages_container = QWidget()
+        self.messages_container.setStyleSheet("background-color: #1e1e2e;")
+        self.messages_layout = QVBoxLayout(self.messages_container)
+        self.messages_layout.setAlignment(Qt.AlignTop)
+        self.messages_layout.setSpacing(4)
+        self.messages_layout.setContentsMargins(4, 4, 4, 4)
+
+        self.scroll_area.setWidget(self.messages_container)
+        right_layout.addWidget(self.scroll_area, 1)
+
+        # Barre de saisie
         input_row = QHBoxLayout()
+        input_row.setSpacing(8)
         self.input = QLineEdit()
-        self.input.setPlaceholderText("Message...")
+        self.input.setPlaceholderText("Écris un message… (Entrée pour envoyer)")
         self.input.returnPressed.connect(self.send_message)
         send_btn = QPushButton("Envoyer")
+        send_btn.setObjectName("send_btn")
+        send_btn.setCursor(Qt.PointingHandCursor)
         send_btn.clicked.connect(self.send_message)
         input_row.addWidget(self.input)
         input_row.addWidget(send_btn)
-        right.addLayout(input_row)
+        right_layout.addLayout(input_row)
 
         main.addWidget(left_widget)
-        main.addLayout(right)
+        main.addWidget(right_widget, 1)
 
         self.refresh_users()
 
@@ -239,71 +255,64 @@ class ChatWindow(QWidget):
         self.timer.timeout.connect(self.poll)
         self.timer.start(2000)
 
+    # ── Gestion des utilisateurs ──────────────────────────────────────────
+
     def refresh_users(self):
         self.user_list.clear()
         for user in get_all_users(self.username):
-            item = QListWidgetItem(user)
+            count = get_unread_count(self.username, user)
+            display = f"{user}  🔴 {count}" if count > 0 else user
+            item = QListWidgetItem(display)
             item.setData(Qt.UserRole, user)
             self.user_list.addItem(item)
 
     def on_user_click(self, item):
         self.selected_user = item.data(Qt.UserRole)
         self.chat_label.setText(f"Conversation avec {self.selected_user}")
-        self.last_id = 0
         self.last_signature = None
         self.clear_messages()
+        mark_messages_as_read(self.username, self.selected_user)
         self.load_messages()
+        self.refresh_users()
+        self.input.setFocus()
+
+    # ── Affichage des messages ────────────────────────────────────────────
 
     def clear_messages(self):
-        while self.messages_area.count():
-            w = self.messages_area.takeAt(0).widget()
+        while self.messages_layout.count():
+            item = self.messages_layout.takeAt(0)
+            w = item.widget()
             if w:
                 w.deleteLater()
 
     def load_messages(self):
-        rows = fetch_messages(self.username, self.selected_user)
-        self.last_signature = self.compute_signature(rows)
-        for row in rows:
-            msg_id, expediteur, destinataire, chiffre_dest, chiffre_exp, envoye_le, modifie_le = row
-            self.show_message(msg_id, expediteur, destinataire, chiffre_dest, chiffre_exp, envoye_le, modifie_le)
+        messages, sig = charger_conversation(self.username, self.selected_user)
+        self.last_signature = sig
+        for msg in messages:
+            self._add_bubble(msg)
+        self._scroll_to_bottom()
 
-    def compute_signature(self, rows):
-        if not rows:
-            return (0, 0, "")
-        last_id = max(r[0] for r in rows)
-        modifie_le_vals = [r[6] for r in rows if r[6] is not None]
-        max_modifie = max(modifie_le_vals) if modifie_le_vals else None
-        return (len(rows), last_id, str(max_modifie) if max_modifie is not None else "")
+    def _add_bubble(self, msg):
+        msg_id, expediteur, texte, heure, sent_by_me, modifie, lu = msg
+        bubble = MessageBubble(
+            msg_id=msg_id,
+            expediteur=expediteur,
+            texte=texte,
+            heure=heure,
+            sent_by_me=sent_by_me,
+            modifie=modifie,
+            lu=lu,
+            on_edit=self.edit_message,
+            on_delete=self.delete_message,
+        )
+        self.messages_layout.addWidget(bubble)
 
-    def show_message(self, msg_id, expediteur, destinataire, chiffre_dest, chiffre_exp, envoye_le, modifie_le):
-        sent_by_me = (str(expediteur).strip() == str(self.username).strip())
-        try:
-            texte = decrypt(chiffre_exp if sent_by_me else chiffre_dest, self.private_key)
-        except Exception:
-            texte = "[illisible]"
+    def _scroll_to_bottom(self):
+        QTimer.singleShot(50, lambda: self.scroll_area.verticalScrollBar().setValue(
+            self.scroll_area.verticalScrollBar().maximum()
+        ))
 
-        heure = envoye_le.strftime("%H:%M") if hasattr(envoye_le, "strftime") else str(envoye_le)
-        prefix = "Moi" if sent_by_me else expediteur
-        suffix = " (modifié)" if modifie_le is not None else ""
-        label = QLabel(f"[{heure}] {prefix} : {texte}{suffix}")
-        label.setWordWrap(True)
-        row = QWidget()
-        row_layout = QHBoxLayout(row)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.addWidget(label, 1)
-
-        if sent_by_me:
-            edit_btn = QPushButton("Modifier")
-            edit_btn.clicked.connect(lambda _=False, mid=msg_id, txt=texte: self.edit_message(mid, txt))
-            del_btn = QPushButton("Supprimer")
-            del_btn.clicked.connect(lambda _=False, mid=msg_id: self.delete_message(mid))
-            row_layout.addWidget(edit_btn)
-            row_layout.addWidget(del_btn)
-
-        self.messages_area.addWidget(row)
-
-        if msg_id > self.last_id:
-            self.last_id = msg_id
+    # ── Actions messages ──────────────────────────────────────────────────────
 
     def send_message(self):
         if not self.selected_user:
@@ -312,11 +321,7 @@ class ChatWindow(QWidget):
         texte = self.input.text().strip()
         if not texte:
             return
-
-        chiffre_dest = encrypt(texte, get_public_key(self.selected_user))
-        chiffre_exp = encrypt(texte, get_public_key(self.username))
-
-        save_message(self.username, self.selected_user, chiffre_dest, chiffre_exp)
+        envoyer_message(self.username, self.selected_user, texte)
         self.input.clear()
         self.clear_messages()
         self.load_messages()
@@ -331,10 +336,7 @@ class ChatWindow(QWidget):
         if not nouveau_texte:
             QMessageBox.warning(self, "Erreur", "Le message ne peut pas être vide.")
             return
-
-        chiffre_dest = encrypt(nouveau_texte, get_public_key(self.selected_user))
-        chiffre_exp = encrypt(nouveau_texte, get_public_key(self.username))
-        if not update_message(msg_id, self.username, chiffre_dest, chiffre_exp):
+        if not modifier_message(msg_id, self.username, self.selected_user, nouveau_texte):
             QMessageBox.warning(self, "Erreur", "Impossible de modifier ce message.")
             return
         self.clear_messages()
@@ -363,15 +365,18 @@ class ChatWindow(QWidget):
         self.clear_messages()
         self.load_messages()
 
+    # ── Polling ───────────────────────────────────────────────────────────
+
     def poll(self):
+        self.refresh_users()
         if not self.selected_user:
             return
-        rows = fetch_messages(self.username, self.selected_user)
-        signature = self.compute_signature(rows)
-        if signature == self.last_signature:
+        messages, sig = charger_conversation(self.username, self.selected_user)
+        if sig == self.last_signature:
             return
+        mark_messages_as_read(self.username, self.selected_user)
         self.clear_messages()
-        self.last_signature = signature
-        for row in rows:
-            msg_id, expediteur, destinataire, chiffre_dest, chiffre_exp, envoye_le, modifie_le = row
-            self.show_message(msg_id, expediteur, destinataire, chiffre_dest, chiffre_exp, envoye_le, modifie_le)
+        self.last_signature = sig
+        for msg in messages:
+            self._add_bubble(msg)
+        self._scroll_to_bottom()

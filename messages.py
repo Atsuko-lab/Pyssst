@@ -1,4 +1,6 @@
+import mysql.connector
 from db import get_connection
+from crypto import encrypt, decrypt, load_private_key
 
 
 def get_all_users(exclude):
@@ -142,3 +144,49 @@ def fetch_messages(viewer, other_user):
     cursor.close()
     conn.close()
     return rows
+
+
+def envoyer_message(expediteur, destinataire, texte):
+    """Chiffre le texte deux fois et sauvegarde le message en BDD."""
+    chiffre_dest = encrypt(texte, get_public_key(destinataire))
+    chiffre_exp = encrypt(texte, get_public_key(expediteur))
+    save_message(expediteur, destinataire, chiffre_dest, chiffre_exp)
+
+
+def modifier_message(msg_id, expediteur, destinataire, nouveau_texte):
+    """Rechiffre un message modifié et met à jour la BDD."""
+    chiffre_dest = encrypt(nouveau_texte, get_public_key(destinataire))
+    chiffre_exp = encrypt(nouveau_texte, get_public_key(expediteur))
+    return update_message(msg_id, expediteur, chiffre_dest, chiffre_exp)
+
+
+def _calculer_signature(rows):
+    if not rows:
+        return (0, 0, "", "")
+    last_id = max(r[0] for r in rows)
+    modifie_vals = [r[6] for r in rows if r[6] is not None]
+    max_modifie = max(modifie_vals) if modifie_vals else None
+    lu_vals = tuple(r[7] for r in rows)
+    return (len(rows), last_id, str(max_modifie), str(lu_vals))
+
+
+def charger_conversation(viewer, other_user):
+    """Charge et déchiffre tous les messages d'une conversation.
+    Retourne (liste_messages, signature).
+    Chaque message : (msg_id, expediteur, texte, heure, sent_by_me, modifie, lu).
+    """
+    private_key = load_private_key(viewer)
+    rows = fetch_messages(viewer, other_user)
+    signature = _calculer_signature(rows)
+    result = []
+    for row in rows:
+        msg_id, expediteur, destinataire, chiffre_dest, chiffre_exp, envoye_le, modifie_le, lu = row
+        sent_by_me = str(expediteur).strip() == str(viewer).strip()
+        try:
+            texte = decrypt(chiffre_exp if sent_by_me else chiffre_dest, private_key)
+        except Exception:
+            texte = "[illisible]"
+        heure = envoye_le.strftime("%H:%M") if hasattr(envoye_le, "strftime") else str(envoye_le)
+        lu_bool = bool(lu) if lu is not None else False
+        result.append((msg_id, str(expediteur).strip(), texte, heure, sent_by_me, modifie_le is not None, lu_bool))
+    return result, signature
