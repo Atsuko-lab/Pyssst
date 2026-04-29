@@ -418,24 +418,16 @@ Soyons honnêtes : on a ajouté ça parce qu'on trouvait ça drôle. Mais ça il
 
 ### 1. Hachage et salage des mots de passe
 
-Nous avons regardé directement dans la base de données après la création d'un compte pour vérifier que le mot de passe stocké n'était pas en clair. Le champ `password` contenait bien une longue chaîne de caractères illisible générée par `bcrypt`, et non le mot de passe original. Nous avons aussi vérifié qu'en créant deux comptes avec le même mot de passe, les deux hashs stockés en base étaient différents, ce qui confirme bien que le salage fonctionne.
+Nous avons regardé directement dans la base de données après la création d'un compte pour vérifier que le mot de passe stocké n'était pas en clair. Le champ `motdepasseHASH_SAL` contenait bien une longue chaîne de caractères illisible générée par `bcrypt`, et non le mot de passe original. Nous avons aussi créé deux comptes avec le même mot de passe et vérifié que les deux hashs stockés étaient différents, ce qui confirme que le salage fonctionne bien. Enfin, nous avons confirmé qu'il est impossible de retrouver le mot de passe original à partir de ce hash : même en connaissant l'algorithme utilisé, il ne peut pas être inversé. La seule façon de valider un mot de passe est de le hasher à nouveau et de comparer, ce que fait notre application à chaque connexion.
 
-### 2. Impossibilité de récupérer les mots de passe
-
-Toujours en regardant directement la base de données, nous avons confirmé qu'il est impossible de retrouver le mot de passe original à partir du hash stocké. Même en connaissant l'algorithme utilisé (`bcrypt`), le hash ne peut pas être inversé. La seule façon de valider un mot de passe est de le hasher à nouveau et de comparer, ce que fait notre application à la connexion.
-
-### 3. Chiffrement des messages en base de données
+### 2. Chiffrement des messages en base de données
 
 Nous avons envoyé des messages entre deux comptes puis sommes allés regarder directement dans la table `messages` de la base de données. Le contenu stocké dans les colonnes `contenu_chiffre_dest` et `contenu_chiffre_exp` était bien une suite de bytes illisibles, correspondant au message chiffré en RSA-OAEP. Il est donc impossible pour quelqu'un ayant accès à la base de données de lire les conversations sans posséder la clé privée du destinataire, qui elle est stockée uniquement sur la machine du client.
 
-### 4. Modification d'un message
+### 3. Modification d'un message
 
 Nous avons modifié un message déjà envoyé depuis l'interface, puis avons vérifié dans la base de données que le contenu chiffré avait bien été mis à jour dans les deux colonnes (`contenu_chiffre_dest` et `contenu_chiffre_exp`), et que le champ `modifie_le` contenait bien la date et l'heure de la modification. Côté interface, l'indicateur **"modifié"** apparaissait bien sous le message pour les deux utilisateurs.
 
-### 5. Suppression d'un message pour soi
+### 4. Suppression de messages
 
-Nous avons supprimé un message en choisissant "Supprimer pour moi", puis avons vérifié que le message n'apparaissait plus dans notre interface mais restait visible côté destinataire. En base de données, nous avons confirmé que le champ `cache_par_expediteur` était bien passé à `1`, et que le message n'avait pas été effacé.
-
-### 6. Suppression d'un message pour tout le monde
-
-Nous avons supprimé un message en choisissant "Supprimer pour tout le monde", puis avons vérifié que le message disparaissait bien des deux côtés de la conversation sans avoir besoin de recharger l'application, grâce au système de polling qui rafraîchit automatiquement toutes les 2 secondes. En base de données, nous avons confirmé que le champ `supprime_pour_tous` était bien passé à `1` et que le contenu chiffré avait été vidé.
+Nous avons testé les deux modes de suppression. Pour "Supprimer pour moi", nous avons vérifié que le message disparaissait bien de notre interface tout en restant visible côté destinataire, et qu'en base de données le champ `cache_par_expediteur` était bien passé à `1` sans que le message soit réellement effacé. Pour "Supprimer pour tout le monde", nous avons vérifié que le message disparaissait des deux côtés sans recharger l'application, grâce au polling automatique toutes les 2 secondes. En base de données, nous avons confirmé que le champ `supprime_pour_tous` était bien passé à `1`, que le contenu chiffré avait été vidé, et que le message n'était plus récupérable via une requête normale sur la table `messages`.
