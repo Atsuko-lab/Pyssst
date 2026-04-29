@@ -366,14 +366,22 @@ Rafraîchit les contacts puis appelle `self.conversation.verifier_changements()`
 
 ## Bibliothèques utilisées
 
-| Bibliothèque | Rôle |
-|---|---|
-| `PySide6` | Interface graphique |
-| `mysql-connector-python` | Connexion à la base MySQL |
-| `cryptography` | Génération des clés RSA, chiffrement OAEP |
-| `bcrypt` | Salage + hachage des mots de passe |
-| `hmac` | Cryptage HMAC-SHA256 des mots de passe |
-| `hashlib` | Digestmod SHA-256 pour le HMAC |
-| `re` | Expressions régulières (validation du mot de passe) |
-| `os` | Lecture de la variable d'environnement `PYSSST_SECRET_KEY` |
-| `pathlib` | Gestion des chemins de fichiers (clés .pem) |
+| Bibliothèque | Rôle | Justificatif |
+|---|---|---|
+| `PySide6` | Interface graphique | Nous avons choisi PySide6 car il nous permettait de créer une interface graphique moderne et professionnelle facilement, avec une documentation très complète qui nous a aidés à avancer rapidement sans expérience préalable en GUI. |
+
+| `mysql-connector-python` | Connexion à la base MySQL | Nous avons choisi cette bibliothèque car c'est le driver officiel de MySQL, ce qui nous garantissait une compatibilité fiable avec notre base de données sans avoir à configurer des dépendances supplémentaires. |
+
+| `cryptography` | Génération des clés RSA, chiffrement OAEP | Nous avons choisi `cryptography` car elle nous offrait tout ce dont nous avions besoin pour le chiffrement asymétrique en un seul endroit, avec une API claire qui nous a permis d'implémenter RSA sans avoir à gérer les détails bas niveau. |
+
+| `bcrypt` | Salage + hachage des mots de passe | Nous avons choisi `bcrypt` car c'est la solution la plus reconnue pour stocker des mots de passe de façon sécurisée, et elle gère automatiquement le salage, ce qui nous évitait de le faire manuellement et de risquer des erreurs. |
+
+| `hmac` | Cryptage HMAC-SHA256 des mots de passe | Nous avons choisi `hmac` car elle est directement intégrée à Python sans installation supplémentaire, et elle nous permettait d'ajouter une couche de vérification d'intégrité sur les mots de passe de façon simple. |
+
+| `hashlib` | Digestmod SHA-256 pour le HMAC | Nous avons choisi `hashlib` car elle est native à Python et nous fournissait SHA-256 dont nous avions besoin pour faire fonctionner le HMAC, sans alourdir le projet avec une dépendance externe. |
+
+| `re` | Expressions régulières (validation du mot de passe) | Nous avons choisi `re` car elle nous permettait de vérifier en quelques lignes que le mot de passe respecte bien toutes nos règles de sécurité (majuscules, chiffres, caractères spéciaux), sans avoir à écrire une logique de validation complexe à la main. |
+
+| `os` | Lecture de la variable d'environnement `PYSSST_SECRET_KEY` | Nous avons choisi `os` car elle nous permettait de lire la clé secrète depuis l'environnement système plutôt que de l'écrire directement dans le code, ce qui évite de l'exposer accidentellement si le projet est partagé. |
+
+| `pathlib` | Gestion des chemins de fichiers (clés .pem) | Nous avons choisi `pathlib` car elle rendait la gestion des chemins vers nos fichiers de clés beaucoup plus lisible et fiable, en évitant les problèmes de compatibilité entre Windows et Linux que l'on aurait eus avec de simples chaînes de caractères. |
